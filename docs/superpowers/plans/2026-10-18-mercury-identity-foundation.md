@@ -20,8 +20,11 @@
 - Page translation is removed in v0.1.
 - Electron is bundled. `electron-builder` is **at least 26.17.0** — `desktopName` support depends on it.
 - Licence stays Apache-2.0; `LICENSE.txt` is unmodified; a `NOTICE` is added.
-- Tests run on **Node 22** via `node --test`. `npm test` remains Min's `standard` linter and must pass after every task.
+- Tests run on **Node 22** via `node --test`. The lint gate is **`npm run test:lint`**, *not* `npm test`.
+- **Why the lint gate is a baseline diff.** Min v1.35.7 does not lint clean, and never did: `standard` 14.3.4 reports **643 errors** across `js/` and `main/` on the imported tree (336 and 307), it cannot even parse `main/main.js` — that file has a top-level `return` at line 85, legal only once browserify has wrapped it — and upstream CI never ran the linter at all, so the debt was never paid down. Fixing 643 unrelated errors is not this sub-project's work, but dropping the linter would drop the one thing it is genuinely good for here: catching variables and imports orphaned by the large deletions these tasks perform. So `scripts/lintBaseline.js` records the per-file error count in `test/fixtures/lint-baseline.json` and fails only when a file's count **grows**. Line numbers are deliberately not compared, since every task shifts the lines of the errors above its own edit. `npm test` remains available and is informational only — it exits non-zero on the untouched import too.
 - **Local dependency state is self-contained.** `node_modules/` is project-local by default; `.npmrc` puts npm's cache in `.cache/npm` (a relative path npm resolves against this directory — verified), and `scripts/devEnv.sh` puts Electron's, electron-builder's and node-gyp's caches in `.cache/` too. Deleting the checkout leaves nothing in `$HOME`. There is no Python virtualenv: this is a Node project, and node-gyp installs no Python packages, so a venv would isolate nothing.
+- **`.npmrc` must keep `allow-git=root`.** Min depends on `dragula@github:minbrowser/dragula`, and npm ≥ 11 aborts the entire install with `EALLOWGIT` without it — locally only, since npm 10 (Node 22, CI) permits git dependencies by default. Do not "clean up" the key as unrecognised; it is what makes a local install possible.
+- **Electron's download cache is `electron_config_cache`, not `ELECTRON_CACHE`.** `@electron/get` ignores the latter and falls back to `~/.cache/electron`.
 - **Local builds:** `source scripts/devEnv.sh` before any `npm install` or `npm run build`.
 - **Packaging is CI-only.** This host is CachyOS/Arch with no `dpkg-deb`, `rpmbuild` or `fpm`, and about 1.3 GB RAM available, so it can build the app bundle but not the `.deb`/`.rpm`/AppImage, nor read a `.deb` back. Tasks 10–12 run on GitHub Actions (public repo, free minutes).
 
@@ -116,8 +119,8 @@ Licence: Apache-2.0"
 ### Task 2: Test harness and package identity
 
 **Files:**
-- Create: `test/helpers/repo.js`, `test/helpers/renderer.js`, `test/identity.test.js`
-- Modify: `package.json`, `main/main.js`, `.nvmrc`
+- Create: `test/helpers/repo.js`, `test/helpers/renderer.js`, `test/identity.test.js`, `scripts/lintBaseline.js`, `test/fixtures/lint-baseline.json`
+- Modify: `package.json`, `main/main.js`, `.nvmrc`, `.npmrc`
 
 **Interfaces:**
 - Produces: `test/helpers/repo.js` exporting
@@ -126,7 +129,8 @@ Licence: Apache-2.0"
   - `sourceFiles(): string[]` — absolute paths of every `.js`, `.html`, `.css` under `js/`, `main/`, `pages/`, `reader/` plus the root `index.html`, excluding `node_modules`, `dist`, `localization/languages`, and `ext/`
   - `stripComments(text: string, ext: string): string` — `decomment` for `.js`, `/* */` and `<!-- -->` removal for `.css`/`.html`
 - Produces: `test/helpers/renderer.js` exporting `loadRendererModule(rel: string): any` — installs the `window`, `ipc` and `localStorage` globals the renderer modules read at load time, sets `NODE_PATH` to `<ROOT>/js` so browserify-style bare specifiers like `util/searchEngine.js` resolve, restores both on exit.
-- Produces: npm script `test:unit` = `node --test test/`
+- Produces: npm script `test:lint` = `node scripts/lintBaseline.js` — fails when any file's `standard` error count grows past `test/fixtures/lint-baseline.json`. See Global Constraints for why the linter is a baseline diff rather than a pass/fail gate.
+- Produces: npm script `test:unit` = `node --test "test/*.test.js"` — a quoted glob, not a directory argument. Measured on Node 22.23.3 (the version `.nvmrc` and CI pin): `node --test test/` treats `test/` as a module path and fails the entire run with `MODULE_NOT_FOUND`, while a bare `node --test` executes **every** file under `test/`, including `test/helpers/` and — once Task 12 adds them — the Playwright specs and proxy helper in `test/e2e/`. The quoted glob is the only form measured to work on both Node 22 and Node 26 while restricting the run to the unit tests.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -182,13 +186,28 @@ du -sh .cache/* node_modules
 ls ~/.cache/electron 2>/dev/null && echo "LEAKED to \$HOME" || echo "ok: no ~/.cache/electron"
 ```
 
-`--omit=optional` matches Min's own CI. This is the first heavy local step: expect roughly 1–1.5 GB in `node_modules` and a few hundred MB more in `.cache/`. Available RAM on this machine is about 1.3 GB, which is enough for `npm install` and `npm run build` but **not** for electron-builder — that is why packaging stays in CI (Tasks 10–12).
+`--omit=optional` matches Min's own CI. This is the first heavy local step. Measured here: `node_modules` 684 MB, `.cache/npm` 231 MB, `.cache/electron` 120 MB, for about 1 GB in total rather than the 1.5 GB this step originally guessed. Available RAM is about 1.3 GB, which is enough for `npm install` and `npm run build` but **not** for electron-builder — that is why packaging stays in CI (Tasks 10–12).
 
-If `~/.cache/electron` appears, `ELECTRON_CACHE` was not picked up: re-source `scripts/devEnv.sh` in the same shell that runs `npm install`.
+Two things had to be discovered by running it, and both are now fixed rather than worked around:
+
+- **npm 12 refuses git dependencies.** Min declares one — `dragula@github:minbrowser/dragula`, a fork rather than the published package — and npm 12 fails the whole install with `EALLOWGIT ... Fetching packages of type "git" have been disabled`. npm 10, which Node 22 ships, has no such restriction, so **CI would have passed while every local install on npm ≥ 11 failed**. `.npmrc` now sets `allow-git=root` (the least permissive value; the fork is a direct dependency, so nothing transitive needs it). npm 10 treats the unknown key as a warning, which this `.npmrc` already produces for upstream's `node-linker`.
+- **`ELECTRON_CACHE` does not exist.** `@electron/get`'s `Cache` derives its root from `env-paths('electron').cache`, i.e. `~/.cache/electron`, and ignores that variable. What actually works is `electron_config_cache`, read by `node_modules/electron/install.js` as `cacheRoot: process.env.electron_config_cache`. With the wrong name the install silently drops 120 MB into `$HOME`; `scripts/devEnv.sh` now exports the right one.
+
+If `~/.cache/electron` reappears, the variable was not picked up: re-source `scripts/devEnv.sh` in the same shell that runs `npm install`, then move the stray directory with `mv ~/.cache/electron/* .cache/electron/` so the next install reuses it instead of re-downloading.
 
 - [ ] **Step 4: Add the script and run the test — it must fail**
 
-Add to `package.json` `scripts`: `"test:unit": "node --test test/"`.
+Add to `package.json` `scripts`: `"test:unit": "node --test \"test/*.test.js\""`.
+
+The form is deliberate. Against a fixture of two `*.test.js` files plus `test/helpers/repo.js`, `test/e2e/launch.spec.js` and `test/e2e/proxy.js`, measured on both Node 22.23.3 and Node 26.11.1:
+
+| command | Node 22 | Node 26 | runs `test/e2e/` or `test/helpers/` |
+| --- | --- | --- | --- |
+| `node --test test/` | fails: `MODULE_NOT_FOUND` | works | no |
+| `node --test "test/*.test.js"` | works | works | **no** |
+| `node --test` | works | works | **yes — every file** |
+
+A directory argument is *not* portable across the two versions, and the version this repo pins (22) is the one that breaks. A bare `node --test` is version-portable but would run the Playwright specs under the node test runner once Task 12 lands. Quote the glob so Node expands it rather than the shell, as the Node docs recommend.
 
 Run: `npm run test:unit`
 Expected: FAIL — `name` is `'min'`, and `productName`/`desktopName` are `'Min'`/absent.
@@ -215,15 +234,49 @@ In `main/main.js`, the `-v`/`--version` branch prints `'Min: ' + app.getVersion(
 
 Write `.nvmrc` containing `22`. `node --test` requires Node ≥ 18; the current `.nvmrc` says `15.7.0`, which cannot run the test runner, and Min's own CI already uses Node 25. The system Node here is 26.11.1, which runs the tests unchanged — `.nvmrc` pins CI and any nvm user, not this machine.
 
-- [ ] **Step 8: Run the tests — they must pass**
+This local/CI divergence is not academic: it is exactly how the `test:unit` form broke. The plan originally read `node --test test/`, which passes here on Node 26 and fails outright on the pinned Node 22. Every test command in this plan was therefore re-measured on Node 22.23.3 before being written down; a Node 22 binary sits at `/tmp/opencode/node22/bin/node` for re-checking. When a step's output is version-sensitive, run it through that binary as well.
+
+- [ ] **Step 8: Add the lint gate and record its baseline**
+
+`standard` cannot be a pass/fail gate on this tree (see Global Constraints for the measurements). `scripts/lintBaseline.js` is its replacement:
+
+- it runs `standard` over the same two patterns upstream's `npm test` uses, `js/**/*.js` and `main/*.js`;
+- it parses `<file>:<line>:<col>: <message>` lines into a per-file error count;
+- with `--write-baseline` it records those counts in `test/fixtures/lint-baseline.json`;
+- otherwise it fails only when a file's count exceeds the recorded one, printing that file's errors. Line and column are deliberately dropped from the comparison, because every task shifts the lines of the errors above its own edit.
+
+Add `"test:lint": "node scripts/lintBaseline.js"` to `package.json` scripts, then record the baseline:
+
+```bash
+node scripts/lintBaseline.js --write-baseline   # 73 files, 643 errors
+node scripts/lintBaseline.js                    # PASS: no new errors
+```
+
+- [ ] **Step 9: Prove the lint gate can fail**
+
+A gate nobody has watched fail is not a gate. Inject an orphaned variable, watch the gate catch it, then revert:
+
+```bash
+printf '\nconst orphanedByDeletion = 1\n' >> js/readerView.js
+node scripts/lintBaseline.js   # FAIL: js/readerView.js: 1 -> 2
+git checkout -- js/readerView.js
+node scripts/lintBaseline.js   # PASS again
+```
+
+Expected: exit 1 reporting `js/readerView.js: 1 -> 2` and `'orphanedByDeletion' is assigned a value but never used`, then exit 0 after the revert. This is the check that catches a variable or import orphaned by a deletion in any later task.
+
+- [ ] **Step 10: Run the tests — they must pass**
 
 Run: `npm run test:unit`
 Expected: PASS — 1 test, 1 pass.
 
-Run: `npm test`
-Expected: PASS — the `standard` linter is clean. It lints `js/**/*.js` and `main/*.js`, so the `main/main.js` edit is covered.
+Run: `npm run test:lint`
+Expected: PASS — `lint: no new errors (643 total, baseline 643); 73 files recorded`.
 
-- [ ] **Step 9: Commit**
+Run: `npm test`
+Expected: **FAIL**, exit 1, 643 errors — the untouched upstream state, not something this task caused. Informational only; the gate above is what is enforced. This task's `main/main.js` edit is a string literal, so it changes no count.
+
+- [ ] **Step 11: Commit**
 
 ```bash
 git add -A
@@ -264,7 +317,12 @@ test('no source references telemetry', () => {
   for (const file of sourceFiles()) {
     const ext = path.extname(file)
     const code = stripComments(readFile(path.relative(ROOT, file)), ext)
-    assert.doesNotMatch(code, /services\.minbrowser\.org/, file)
+    // Scoped to the telemetry endpoint, not the whole minbrowser.org host:
+    // pages/translateService/translateService.js legitimately references
+    // services.minbrowser.org/bergamot-models-v1 three times and is not
+    // removed until Task 5. The broader whole-host check is Task 4's job,
+    // which excludes that directory until Task 5 tightens it.
+    assert.doesNotMatch(code, /services\.minbrowser\.org\/stats/, file)
     assert.doesNotMatch(code, /collectUsageStats/, file)
   }
 })
@@ -302,8 +360,8 @@ Locale keys (including `settingsUsageStatisticsToggle`) are **frozen**: leave th
 Run: `npm run test:unit`
 Expected: PASS.
 
-Run: `npm test`
-Expected: PASS. `standard` fails on unused variables, so it catches any local left behind by the removals.
+Run: `npm run test:lint`
+Expected: PASS — `lint: no new errors`. `standard`'s unused-variable rule is what catches a local left behind by these removals, and the gate reports any such *new* error even though the tree as a whole does not lint clean. (`npm test` exits non-zero here on the untouched tree; it is informational only.)
 
 - [ ] **Step 6: Commit**
 
@@ -318,7 +376,7 @@ git commit -m "feat: remove usage statistics collection, setting and toggle"
 
 **Files:**
 - Delete: `js/searchbar/updateNotifications.js`
-- Modify: `js/sessionRestore.js`, `main/main.js`, `js/webviewMenu.js`, `js/navbar/contentBlockingToggle.js`, `pages/settings/index.html`
+- Modify: `js/sessionRestore.js`, `main/main.js`, `main/menu.js`, `js/webviewMenu.js`, `js/navbar/contentBlockingToggle.js`, `pages/settings/index.html`, `pages/settings/settings.js`
 - Create: `test/no-min-infrastructure.test.js`
 
 **Interfaces:**
@@ -361,13 +419,15 @@ Expected: FAIL — `js/searchbar/updateNotifications.js` still exists and `js/se
 
 - [ ] **Step 3: Delete the update feed**
 
-`git rm js/searchbar/updateNotifications.js`, then `grep -rn "updateNotifications" js/ main/` and remove the `require` and the plugin registration from `js/default.js`. Update checking is removed, not gated: Min's check defaults to *enabled* (`settings.get('updateNotificationsEnabled') !== false`), so leaving the module in place would require an inverted default to be safe.
+`git rm js/searchbar/updateNotifications.js`, then `grep -rn "updateNotifications" js/ main/ pages/ index.html` and remove the require/initialize line from `js/default.js` (the searchbar plugin registration lives inside the deleted module itself). Update checking is removed, not gated: Min's check defaults to *enabled* (`settings.get('updateNotificationsEnabled') !== false`), so leaving the module in place would require an inverted default to be safe.
+
+Then remove the setting it controlled, exactly as Task 3 removed the usage-statistics toggle: the `/* update notifications setting */` block in `pages/settings/settings.js` and the `checkbox-update-notifications` `setting-section` in `pages/settings/index.html`. **This is not optional.** The third test scans every source file for `/updateNotifications/`, and `pages/settings/settings.js` defines `updateNotificationsCheckbox` and calls `settings.get('updateNotificationsEnabled')`, so leaving that block fails this task's own test. The markup's id is the hyphenated `checkbox-update-notifications`, which the camelCase pattern does *not* match — remove it anyway, or a dead toggle ships to users.
 
 - [ ] **Step 4: Remove the first-run tour and the dead survey**
 
 In `js/sessionRestore.js`:
-- delete the `try { // first run, show the tour ... }` branch that adds a tab at `https://minbrowser.github.io/min/tour`, so first run falls through to opening a new tab,
-- delete the `/* Disabled - show a user survey on startup ... */` and `/* Disabled - show user survey ... */` comment blocks — including the `fetch('https://minbrowser.org/survey/survey15.json')` inside them. Both are already commented out, so this is dead-code removal, not behaviour change.
+- replace the first-run branch — the one that opens `https://minbrowser.github.io/min/tour` — with a plain new tab, matching the "the data isn't restorable" branch immediately below it: `tasks.setSelected(tasks.add())`, then `browserUI.addTab(tasks.getSelected().tabs.add())`. **Do not simply delete the branch.** First run does reach this code — `restoreFromFile` runs when `window.globalArgs['initial-window']` is set, which is the first window on a fresh profile — and falling through reaches `JSON.parse(undefined)`, which throws a `SyntaxError` and sends the user to the session-restore-error page instead of a usable new tab. The branch is a first-run handler that happens to open the tour, not tour code that happens to run first.
+- delete the `/* Disabled - show a user survey on startup ... */` and `/* Disabled - show user survey ... */` comment blocks — including the `fetch('https://minbrowser.org/survey/survey15.json')` inside them. Both are already commented out, so this is dead-code removal, not behaviour change. `shouldShowSurvey` is declared inside the first of those comments and read inside the second, so the two must go together or the deletion leaves a dangling reference in prose.
 
 - [ ] **Step 5: Repoint the crash reporter**
 
@@ -375,7 +435,9 @@ In `main/main.js`, `crashReporter.start({ submitURL: ..., uploadToServer: false,
 
 - [ ] **Step 6: Repoint the Help menu and support links**
 
-In `main/main.js` the Help menu opens four Min URLs. Replace: keyboard-shortcuts wiki → drop the item (no wiki exists); new-issue → `https://github.com/Divine-Owl/Mercury-Browser/issues/new`; tour → drop the item; project site → `https://github.com/Divine-Owl/Mercury-Browser`.
+In `main/menu.js` the Help menu opens four Min URLs — **not `main/main.js`**, which holds only the crash-reporter URL that Step 5 handles. Replace: keyboard-shortcuts wiki → drop the item (no wiki exists); new-issue → `https://github.com/Divine-Owl/Mercury-Browser/issues/new`; tour → drop the item; project site → `https://github.com/Divine-Owl/Mercury-Browser`.
+
+Only the tour item at `main/menu.js` makes this task's test fail: it is the one reference matching `minbrowser\.(org|github\.io)` (the other three are `github.com/minbrowser/min`, which the pattern deliberately does not match). The other edits here are housekeeping, and the test does not enforce them.
 
 In `js/webviewMenu.js` ("report a translation problem") and `js/navbar/contentBlockingToggle.js` ("report a content-blocking problem"), repoint `github.com/minbrowser/min/issues/new...` to `github.com/Divine-Owl/Mercury-Browser/issues/new...`, preserving the query-string title and body.
 
@@ -400,8 +462,8 @@ git commit -m "feat: remove update feed, first-run tour and dead survey; repoint
 ### Task 5: Remove page translation
 
 **Files:**
-- Delete: `pages/translateService/` (whole directory)
-- Modify: `js/webviewMenu.js`, `main/main.js`, `package.json`, `test/no-min-infrastructure.test.js`
+- Delete: `pages/translateService/` (whole directory), `js/pageTranslations.js`, `js/preload/translate.js`
+- Modify: `js/webviewMenu.js`, `main/main.js`, `package.json`, `scripts/buildPreload.js`, `test/no-min-infrastructure.test.js`
 
 **Interfaces:**
 - Consumes: `test/no-min-infrastructure.test.js` from Task 4
@@ -429,7 +491,7 @@ Expected: FAIL on `pages/translateService/translateService.js` naming `services.
 - `git rm -r pages/translateService`
 - In `js/webviewMenu.js`, remove the context-menu entry labelled `l('translatePage')` (and its `click`/`visible` handler).
 - In `main/main.js`, remove the `translatePage` and `translatePreload` constants and the branch that creates and loads `translateWindow`.
-- Run `grep -rn "pageTranslations\|translateWindow\|translatePreload\|bergamot" js/ main/ pages/` and delete whatever is left serving only translation — including `js/pageTranslations.js` if nothing else requires it.
+- Run `grep -rniE "pageTranslations|translateWindow|translatePreload|bergamot|page-translation" js/ main/ pages/` and delete whatever is left serving only translation — including `js/pageTranslations.js` if nothing else requires it. **The hyphenated `page-translation` in that pattern is load-bearing.** `js/preload/translate.js` serves only translation and names none of the other four terms: it reaches Min's host through `ipc.postMessage('page-translation-session-create', ...)`, and it is concatenated into `dist/preload.js`, so it loads into every page while waiting on an `ipc.on('translate-page')` that only the deleted context-menu item ever sent. It must be deleted and dropped from the module list in `scripts/buildPreload.js`, then the preload rebuilt to prove it still builds (`mkdir -p dist && node scripts/buildPreload.js` — `dist/` does not exist until some build step creates it).
 - Remove `@browsermt/bergamot-translator` from `package.json` `dependencies`.
 
 Locale keys (`translatePage` and friends) stay: keys are frozen.
@@ -437,7 +499,7 @@ Locale keys (`translatePage` and friends) stay: keys are frozen.
 - [ ] **Step 4: Run the tests — they must pass**
 
 Run: `npm run test:unit`
-Expected: PASS. Then `npm test` — PASS. `standard` will flag anything the deletions orphaned.
+Expected: PASS. Then `npm run test:lint` — PASS, which is what flags anything the deletions orphaned.
 
 - [ ] **Step 5: Commit**
 
@@ -451,15 +513,21 @@ git commit -m "feat: remove page translation, the last live dependency on Min in
 ### Task 6: Rename the `min://` scheme to `mercury://`
 
 **Files:**
-- Modify: `js/navbar/tabBar.js`, `js/navbar/tabEditor.js`, `js/pdfViewer.js`, `js/places/tagIndex.js`, `js/preload/default.js`, `js/readerView.js`, `js/searchbar/customBangs.js`, `js/sessionRestore.js`, `js/util/settings/settingsPreload.js`, `js/util/urlParser.js`, `js/webviews.js`, `main/main.js`
+- Modify: `js/navbar/tabBar.js`, `js/navbar/tabEditor.js`, `js/pdfViewer.js`, `js/places/tagIndex.js`, `js/preload/default.js`, `js/readerView.js`, `js/searchbar/customBangs.js`, `js/sessionRestore.js`, `js/util/settings/settingsPreload.js`, `js/util/urlParser.js`, `js/webviews.js`, `main/main.js`, `main/download.js`, `main/menu.js`, `main/prompt.js`, `main/viewManager.js`, `scripts/buildMain.js`
 - Rename: `main/minInternalProtocol.js` → `main/mercuryInternalProtocol.js`
+
+Four of those files were missing from an earlier revision of this list (`main/download.js`, `main/menu.js`, `main/prompt.js`, `main/viewManager.js`), as was `scripts/buildMain.js`. Do not trust the list without re-running:
+
+```bash
+grep -rnE "(['\"\`])min:|min://|(['\"\`])min(['\"\`])|minInternalProtocol" js main pages reader index.html scripts
+```
 - Create: `test/scheme.test.js`, `test/urlParser.test.js`
 
 **Interfaces:**
 - Consumes: `test/helpers/repo.js`, `test/helpers/renderer.js` (`loadRendererModule`)
-- Produces: nothing later tasks import.
+- Produces: nothing later tasks import. Note that this task **extends** the Task 2 helper: `loadRendererModule` must also expose a global `fs`, because Electron injects Node's builtins into the renderer, so `js/util/settings/settings.js` and `js/util/hosts.js` use a bare `fs` and `js/util/urlParser.js` requires both. Without it the urlParser test dies on `ReferenceError: fs is not defined` at load, before a single assertion runs — which looks like a broken test rather than a missing global.
 
-The test pattern is deliberately `(['"\`])min:(\/\/)?[a-zA-Z0-9]` — a bare `min:` pattern would false-positive on object keys such as `{ min: 0 }`, and requiring a quote aligns with how every real site is written.
+The test uses **three** patterns, and all three are needed. `(['"\`])min:(\/\/)?[a-zA-Z0-9]` catches a scheme followed by a URL; requiring the leading quote is what keeps it from false-positiving on object keys such as `{ min: 0 }`. But that can only see URLs, and the tree writes the scheme three other ways. `(['"\`])min:(\/\/)?['"\`)]` catches the bare form — `startsWith('min://')` in `js/places/tagIndex.js`, `js/preload/default.js`, `js/util/settings/settingsPreload.js` and `js/viewManager.js`, and `startsWith('min:')` in `js/util/urlParser.js`. `(['"\`])min(['"\`])` catches a scheme token with no colon at all, which is how `knownProtocols` in `main/viewManager.js` writes it. Missing a preload guard means the preload rejects Mercury's own internal pages; missing the `knownProtocols` entry means every `mercury://` URL is offered to the OS as an external protocol.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -520,16 +588,18 @@ Mechanical, across the twelve files listed above plus the protocol module:
 - `min://` → `mercury://`
 - `'min:'` → `'mercury:'` (the shortened form; `js/util/urlParser.js` normalises it)
 - the normaliser regex `/min:(\/\/)?/g` → `/mercury:(\/\/)?/g`
-- `git mv main/minInternalProtocol.js main/mercuryInternalProtocol.js`, then `scheme: 'min'` → `'mercury'` and `protocol.handle('min', ...)` → `protocol.handle('mercury', ...)`, and update the `require` of that module in `main/main.js`
+- `git mv main/minInternalProtocol.js main/mercuryInternalProtocol.js`, then `scheme: 'min'` → `'mercury'` and `protocol.handle('min', ...)` → `protocol.handle('mercury', ...)`. That module is **not** required by `main/main.js`: it is a browserify entry listed in `scripts/buildMain.js`, so that is the file whose path needs updating.
 
-Two sites are easy to miss and both are load-bearing:
-- `Access-Control-Allow-Origin: 'min://app'` in `main/main.js` — a response header, not a URL.
+Sites that are easy to miss, all of them load-bearing:
+- `Access-Control-Allow-Origin: 'min://app'` in **`main/download.js`**, not `main/main.js` — a response header, not a URL, and easy to lose because it does not look like one. `main/main.js` contributes only its `browserPage` constant.
 - The two preload guards, `js/preload/default.js` and `js/util/settings/settingsPreload.js`, which compare `e.origin`/`window.location` against the scheme. See Review Focus #2.
+- `main/viewManager.js`, twice: `startsWith('min://')`, and `knownProtocols = ['http', 'https', 'file', 'min', ...]`. The second decides whether a URL is handed to the OS as an external protocol — leave `'min'` in it and every `mercury://` URL looks external, because `'mercury'` is not in the list.
+- `js/util/urlParser.js` writes the scheme three ways: the normaliser regex `/min:(\/\/)?/g`, a `startsWith('min:')`, and the `isInternalURL`/`getSourceURL` pair. Only the URL-shaped ones are visible to a `min://` grep.
 
 - [ ] **Step 4: Run the tests — they must pass**
 
 Run: `npm run test:unit`
-Expected: PASS. Then `npm test` — PASS.
+Expected: PASS. Then `npm run test:lint` — PASS.
 
 - [ ] **Step 5: Commit**
 
@@ -594,6 +664,13 @@ test('the product name is substituted in a non-Latin locale', () => {
   const ja = parseLocale(localeFiles().find(f => f.endsWith('/ja.json')))
   assert.match(ja.translations.serverNotFoundSubtitle, /Mercury/)
 })
+
+test('no locale value links to a Min host', () => {
+  for (const file of localeFiles()) {
+    const { identifier, translations } = parseLocale(file)
+    assert.doesNotMatch(JSON.stringify(translations), /minbrowser/, identifier)
+  }
+})
 ```
 
 `\b` here is ASCII-only, which is exactly what makes it correct: `Minは` and `Minの` have a boundary after `Min`, while `timeRangeMinutes` and `appMenuMinimize` do not — those are keys, and the key test above would catch their corruption anyway.
@@ -607,7 +684,19 @@ Expected: FAIL on the "whole word Min" test, and on the `ja` substitution test.
 
 Replace every regex match of `\bMin\b` with `Mercury` across the 35 files in `localization/languages/`. en-US itself hardcodes the word in nine places (`serverNotFoundSubtitle`, `sslErrorMessage`, `genericConnectionFail`, `sslTimeErrorMessage`, `multipleInstancesErrorMessage`, the `settingsBlockedRequestCount` `unsafeHTML`, `settingsStartupOptions`, `updateNotificationTitle`, `passwordManagerSetupSignIn`), so this is a literal swap, not a placeholder substitution.
 
-Do **not** touch `%n`: it is substituted at the call site — `l('appMenuQuit').replace('%n', app.name)` — so the 205 `%n` sites already follow the product name and need no edit.
+Do **not** touch `%n`: it is substituted at the call site — `l('appMenuQuit').replace('%n', app.name)` — so the 275 `%n` occurrences already follow the product name and need no edit. Confirm the count is still 275 afterwards: `grep -rho '%n' localization/languages/ | wc -l`.
+
+**Also repoint the Min URLs, which renaming the word `Min` cannot reach.** Three keys embed a user-clickable `<a href>` into Min's own GitHub, and a URL is not a word:
+
+| key | what it is | locales |
+| --- | --- | --- |
+| `sessionRestoreErrorLinkInfo.unsafeHTML` | "report this bug here", reached from the session-restore error page | 35 |
+| `settingsUserscriptsExplanation.unsafeHTML` | Min's userscripts wiki | 34 |
+| `settingsUsageStatisticsToggle.unsafeHTML` | Min's statistics doc | 29 |
+
+Without this, every locale offers to file the user's bug against Min. Repoint them to `https://github.com/Divine-Owl/Mercury-Browser`, and the two documentation links to `https://github.com/Divine-Owl/Mercury-Browser#readme` — Task 4's precedent is to drop Min's wiki link rather than ship one documenting a different product. **Replace longest-pattern-first**: the bare repository URL is a prefix of the other two, so replacing it first leaves `/wiki/userscripts` dangling. Nothing else covers these — `test/no-min-infrastructure.test.js` scans `js/`, `main/`, `pages/`, `reader/` and the root `index.html`, never `localization/`.
+
+A textual substitution is correct here and must stay ASCII: a Unicode-aware `\b` does not fire between `Min` and `は`, so `ja`, `ko`, `zh-CN` and `zh-TW` would be skipped in silence. `en-US` has 9 of the 268 replacements and all four CJK locales have 8 or 9, so a Unicode `\b` loses about a third of the work with no error.
 
 - [ ] **Step 6: Run the tests — they must pass**
 
@@ -628,8 +717,14 @@ The built-bundle check (`grep -o -w Min dist/localization.build.js` → `0`) run
 ### Task 8: Rebrand the remaining identity strings
 
 **Files:**
-- Modify: `index.html`, `js/browserUI.js`, `pages/places/placesService.html`, `pages/settings/settings.js`, `main/main.js`, `main/registryConfig.js`, `js/util/searchEngine.js`, `js/searchbar/bangsPlugin.js`, `js/searchbar/instantAnswerPlugin.js`
+- Modify: `index.html`, `js/browserUI.js`, `pages/places/placesService.html`, `pages/settings/settings.js`, `main/menu.js`, `main/registryConfig.js`, `main/UASwitcher.js`, `js/util/searchEngine.js`, `js/searchbar/bangsPlugin.js`, `js/searchbar/instantAnswerPlugin.js`
 - Create: `test/identity-strings.test.js`
+
+`main/main.js` is deliberately absent: it contains no `\bMin\b` at all. The About dialog's version string is in `main/menu.js`, and `main/UASwitcher.js` — the highest-risk file in this task — was missing from an earlier revision of this list. Confirm the set with:
+
+```bash
+node -e "const path=require('path');const {ROOT,readFile,sourceFiles,stripComments}=require('./test/helpers/repo.js');for(const f of sourceFiles()){const r=path.relative(ROOT,f);const c=stripComments(readFile(r),path.extname(r));const n=(c.match(/\\bMin\\b/g)||[]).length;if(n)console.log(n,r)}"
+```
 
 **Interfaces:**
 - Consumes: `test/helpers/repo.js`
@@ -653,7 +748,17 @@ test('the search-engine attribution tag is not min', () => {
     assert.doesNotMatch(readFile(rel), /[?&]t=min\b/, rel)
   }
 })
+
+test('the attribution tag is mercury', () => {
+  assert.match(readFile('js/util/searchEngine.js'), /[?&]t=mercury\b/)
+  assert.match(readFile('js/searchbar/bangsPlugin.js'), /[?&]t=mercury\b/)
+  assert.match(readFile('js/searchbar/instantAnswerPlugin.js'), /[?&]t=mercury\b/)
+})
 ```
+
+Two additions to the published snippet, both required. Assert the tag is *replaced*, not merely absent: deleting `t=min` outright satisfies the negative test while silently dropping DuckDuckGo's attribution, and no other assertion would notice.
+
+The third is functional, not textual, and it is the only guard the `UASwitcher` rename has. `test/identity-strings.test.js` stubs `app.userAgentFallback`, `settings.get`, and `process.versions.chrome` (which exists in Electron and not in Node), loads the real `main/UASwitcher.js` through `loadRendererModule`, and asserts the resulting user agent contains neither `Mercury/` nor `Electron/` while still carrying the Chrome token. Verified to bite by running the as-written and as-if-`Min` expressions side by side: the unrenamed one yields `... Gecko) Mercury/0.1.0 Chrome/120.0.0.0 Safari/537.36`, and the test fails on it.
 
 - [ ] **Step 2: Run it — it must fail**
 
@@ -666,14 +771,15 @@ Expected: FAIL, naming `index.html`.
 - `js/browserUI.js` — the window-title suffix array's `'Min'` → `'Mercury'`
 - `pages/places/placesService.html` — `<title>Min history service</title>` → `Mercury history service`
 - `pages/settings/settings.js` — `document.title = l('settingsPreferencesHeading') + ' | Min'` → `' | Mercury'`
-- `main/main.js` — the About dialog's `'Min v' + app.getVersion()` → `'Mercury v'`
+- `main/menu.js` — the About dialog's `'Min v' + app.getVersion()` → `'Mercury v'`. Not `main/main.js`: that file has no `\bMin\b` in it at all.
+- `main/UASwitcher.js` — `defaultUserAgent.replace(/Min\/\S+\s/, '')` → `/Mercury\/\S+\s/`. **This is the only functional site in the task.** Its job is to strip the app's own product token so that every site sees plain Chrome, and the token it strips *is* the product name. Leave it and Mercury leaks `Mercury/0.1.0` in the user agent of every request — precisely the fingerprinting signal the file exists to remove. A string test cannot see this: it would only observe that `/Min\/\S+\s/` changed into something, and the something it changed into is what matters. See the functional test below.
 - `main/registryConfig.js` — every Windows registry key and value: `HKCU\Software\Classes\Min` → `...\Mercury`, `Software\Clients\StartMenuInternet\Min` → `...\Mercury`, the `Min Browser Document` ProgID description, and the `Min` key/value names. Inert on Linux, but this is the Windows default-browser identity and it is cheapest to change now, while there are no users to migrate.
 - `js/util/searchEngine.js` (both `t=min`), `js/searchbar/bangsPlugin.js`, `js/searchbar/instantAnswerPlugin.js` — `t=min` → `t=mercury`. This is the attribution tag DuckDuckGo receives; leaving it would have Mercury identify itself to a third party as Min.
 
 - [ ] **Step 4: Run the tests — they must pass**
 
 Run: `npm run test:unit`
-Expected: PASS. Then `npm test` — PASS.
+Expected: PASS. Then `npm run test:lint` — PASS.
 
 - [ ] **Step 5: Commit**
 
@@ -687,8 +793,11 @@ git commit -m "feat: rebrand window titles, HTML titles, registry identity and s
 ### Task 9: Packaging identity
 
 **Files:**
-- Create: `scripts/linuxIdentity.js`, `icons/icon256.png`, `icons/icon256.ico`
+- Create: `scripts/linuxIdentity.js`, `scripts/buildIcons.js` (the placeholder-art generator), `test/packaging.test.js`
+- Replace: `icons/icon256.png`, `icons/icon256.ico`, `icons/icon.icns`
 - Modify: `package.json`, `scripts/createPackage.js`, `scripts/buildDebian.js`, `scripts/buildAppImage.js`, `scripts/buildRedhat.js`, `resources/postinst_script`, `resources/prerm_script`
+
+`icons/icon.icns` is not in an earlier revision of this list. It is Min's macOS app icon, referenced by `createPackage.js`'s mac block, and it is the same class of defect as Min's name in the About box: a fork that presents someone else's logo. It is regenerated from the same placeholder.
 
 **Interfaces:**
 - Produces: `scripts/linuxIdentity.js` — a CommonJS module exporting the shared Linux packaging options:
@@ -699,7 +808,15 @@ One module rather than four copies: `desktopName` support requires **both** the 
 
 - [ ] **Step 1: Bump electron-builder**
 
-`package.json` `devDependencies`: `"electron-builder": "^24.13.3"` → `"^26.17.0"`. Version 26.17.0 is the first stable release whose `LinuxTargetHelper.getDesktopFileName()` reads `package.json` `desktopName` when `linux.syncDesktopName` is set; 24.13.3 has no `desktopName` support at all. This is a two-major bump — if it surfaces unrelated breakage, stop and report rather than pinning back.
+`package.json` `devDependencies`: `"electron-builder": "^24.13.3"` → `"^26.17.0"`. Version 26.17.0 is the first stable release whose `LinuxTargetHelper.getDesktopFileName()` reads `package.json` `desktopName` when `linux.syncDesktopName` is set; 24.13.3 has no `desktopName` support at all — `grep -r syncDesktopName node_modules/app-builder-lib/out` returns nothing, and neither does `desktopName`. This is a two-major bump — if it surfaces unrelated breakage, stop and report rather than pinning back.
+
+Both claims in this task were checked against the published 26.17.0 source rather than assumed, by unpacking `npm pack app-builder-lib@26.17.0` into `.cache/` and reading it:
+
+- `out/targets/LinuxTargetHelper.js` defines `getDesktopFileName(fallback = this.packager.executableName)`, which returns `fallback` unless `packager.platformSpecificBuildOptions.syncDesktopName` is set, and otherwise reads `packager.info.metadata.desktopName`. So the wiring is exactly `package.json` `desktopName` + `linux.syncDesktopName`.
+- `out/linuxPackager.js` sets `this.executableName` from `platformSpecificBuildOptions.executableName`, falling back to `sanitizedName.toLowerCase()`. It is an instance *property*, so it is readable from `afterPack` as `context.packager.executableName`.
+- `out/platformPackager.js:320` uses that same property to locate the binary for its own `@electron/fuses` pass, which is the same job `createPackage.js` does by hand.
+
+Note when reviewing the version: `npm view electron-builder dist-tags` reports `latest: 26.15.3` while `26.17.0` carries the `v26` tag. `^26.17.0` is the intended range regardless.
 
 - [ ] **Step 2: Write the shared identity module**
 
@@ -714,9 +831,22 @@ const executableName = context.packager.executableName ||
   context.packager.appInfo.productFilename.toLowerCase().replace('-dev', '')
 ```
 
+The property exists on `LinuxPackager` (see Step 1) and is populated from `linux.executableName`, so this resolves to `mercury-browser` rather than `mercury` — which is also why Step 4 and this fix are coupled: without the spread there is no `executableName` to read, and the fallback is the broken expression.
+
 - [ ] **Step 4: Spread the shared options**
 
-In each of `createPackage.js`, `buildDebian.js`, `buildAppImage.js` and `buildRedhat.js`, replace the hard-coded `linux` options with `{ ...require('./linuxIdentity.js'), target: [...] }`, keeping each script's own `target`.
+In each of `createPackage.js`, `buildDebian.js`, `buildAppImage.js` and `buildRedhat.js`, spread `linuxIdentity` into `options.linux`, keeping each script's own `target`.
+
+**Where the fields go is not the same problem in all four scripts, and the difference matters.** `createPackage.js` and `buildAppImage.js` already had a `linux:` block, so the spread replaces a duplicate. `buildDebian.js` and `buildRedhat.js` had **no** `linux:` block at all — their identity lived under `deb:` and `rpm:` — so for those two the instruction means *moving* the fields, not adding to an existing object.
+
+The right destination for all of them is `linux:`, verified against the source:
+
+- `FpmTarget`'s constructor is `this.options = deepAssign({}, this.packager.platformSpecificBuildOptions, this.packager.config[this.name])`, where `platformSpecificBuildOptions` is the `linux` object. Everything under `linux:` therefore reaches `deb` and `rpm` already, and the target block only needs to override or add.
+- The schema in `app-builder-lib/scheme.json` has `executableName` and `syncDesktopName` on `LinuxConfiguration` and **not** on `DebOptions` or `RpmOptions`, so spreading the identity into `deb:`/`rpm:` would declare two keys electron-builder does not accept there — while `platformSpecificBuildOptions` is the only object `syncDesktopName` is ever read from, so a copy under `deb:` would not have worked anyway.
+
+So `createPackage.js` gets `{ ...linuxIdentity, target: [...] }`; `buildAppImage.js` gets `{ ...linuxIdentity, target: ['AppImage'] }`; `buildDebian.js` and `buildRedhat.js` get `{ ...linuxIdentity, target: ['deb'] }` and `{ ...linuxIdentity, target: ['rpm'] }` with their `deb:`/`rpm:` blocks reduced to what is genuinely format-specific (`artifactName`, `packageName`, `packageCategory`, `depends`, `afterInstall`, `afterRemove`).
+
+This replaces four copies of the identity with one. It also fixes, as a side effect, a real inconsistency the copies had already drifted into: `buildDebian.js` and `buildAppImage.js` had Debian's `synopsis` and `description` the **wrong way round** (the one-line summary in `description`, the paragraph in `synopsis`), while `buildRedhat.js` had them right. `test/packaging.test.js` now asserts that `description` is the longer of the two.
 
 - [ ] **Step 5: Rename the artifacts and metadata**
 
@@ -730,11 +860,25 @@ In `resources/postinst_script` and `resources/prerm_script`, replace `/opt/Min/m
 
 - [ ] **Step 7: Replace the icons**
 
-Replace `icons/icon256.png` and `icons/icon256.ico` with Mercury artwork. **Placeholder art is acceptable for v0.1** — a flat rounded-square mark is enough for packaging to work and for Task 12's window-association check to be meaningful. Record "final artwork pending" as a follow-up; do not treat the placeholder as final.
+Replace `icons/icon256.png`, `icons/icon256.ico` and `icons/icon.icns` with Mercury artwork. **Placeholder art is acceptable for v0.1** — a flat rounded-square mark is enough for packaging to work and for Task 12's window-association check to be meaningful. Record "final artwork pending" as a follow-up; do not treat the placeholder as final.
+
+`icon256.png` is not only a packaging input: `main/main.js` points the `BrowserWindow` at it, so it is the icon in every window and task switcher, and it is what a screenshot of v0.1 will show.
+
+Commit the art **with a generator** (`scripts/buildIcons.js`) rather than three opaque binaries. It draws the mark from geometry — a rounded rectangle and five line segments — and writes the PNG, the multi-size ICO and the ICNS container itself, using only `zlib`, so there is no dependency to install and rerunning it is byte-identical (verified). Whoever supplies the final artwork can either replace the files or replace the drawing in the generator and rerun it, and either way the diff says which.
+
+Not replaced, and recorded in the ledger instead: `icons/source/*.pxm` (Min's logo sources, unshipped — `createPackage.js` excludes `**/icons/source`) and `icons/windows-installer.gif` (Min's NSIS animation, referenced by `buildWindows.js`). Both are Min trademark artwork, but neither is shipped by any v0.1 artifact and the GIF needs real replacement art rather than a fabricated one, so they belong to the deferred platform work.
 
 - [ ] **Step 8: Verify nothing builds locally**
 
-Do not run `npm run buildDebian` here — packaging runs in CI (Task 11). Confirm the edits are internally consistent by reading each script's `options` object.
+Do not run `npm run buildDebian` here — packaging runs in CI (Task 11). Confirm the edits are internally consistent without building, by simulating what electron-builder does with them:
+
+```js
+const identity = require('./scripts/linuxIdentity.js')
+// FpmTarget's constructor, in effect:
+const effective = deepAssign({}, identity, { target: ['deb'], packageName: 'mercury-browser' })
+```
+
+Two things to confirm from the result: that the merge really does carry `maintainer`, `synopsis`, `description`, `mimeTypes`, `category` and `executableName` through to the `deb` options, and that nothing LinuxConfiguration-only is left sitting under a target key. Reading the scripts is not enough on its own — the whole reason this task exists is that a build can succeed while the identity does not reach the artifact.
 
 - [ ] **Step 9: Commit**
 
@@ -748,7 +892,7 @@ git commit -m "feat: packaging identity, bundled electron-builder 26, maintainer
 ### Task 10: Packaged-artifact verification
 
 **Files:**
-- Create: `scripts/verifyPackage.js`
+- Create: `scripts/verifyPackage.js`, `test/verifyPackage.test.js`
 - Modify: `package.json` (add `verifyPackage` script)
 
 **Interfaces:**
@@ -768,10 +912,32 @@ This is the only check that can catch a silently wrong `desktopName` wiring, bec
 - that file's `Exec=` names `mercury-browser`
 - `<tmp>/opt/Mercury/mercury-browser` exists and is executable
 - the desktop file declares `MimeType=` including `x-scheme-handler/mercury`
+- the desktop file carries no `\bMin\b`
+- the `Icon=` name resolves to a file actually installed under `hicolor/*/apps/`
+- `usr/share/applications` contains **exactly one** `.desktop` file, and it is ours
+- the control archive's `Package:` is `mercury-browser` and its `Maintainer:` starts with `Mercury Developers`
+- the version in the artifact filename equals `package.json`'s `version`
 
-On success print each assertion and exit 0; on failure print the assertion, the observed value and exit 1.
+The additions earn their place. The `Icon=` check is the only one that catches the desktop entry and the installer disagreeing about the icon's name: `FpmTarget` installs it as `<executableName>.png` while the desktop entry says `Icon=<executableName>`, so nothing in either file states the name they have in common, and a rename on one side alone is invisible until the launcher shows a blank icon. The exactly-one-`.desktop` check closes the loophole in the basename assertion — a package could contain the expected file *and* a stray one, and only the count notices.
+
+Assertions are collected rather than short-circuited: one run reports every problem, not just the first. On success print each assertion and exit 0; on failure print the assertion, the observed value and exit 1, and keep the extraction directory so the offending file can be read directly.
+
+Two flags make it inspectable instead of CI-only: `--deb <path>` verifies a named package rather than searching `dist/app`, and `--keep` leaves the extraction in place on success as well.
+
+Each tarball is unpacked into its own directory named for its prefix (`control/`, `data/`) rather than both into one tree, so every later assertion can name a path that means one thing.
 
 The extraction is `ar x` then `tar -xf` — **no compression flags**. Verified against a real `.deb` on this host (`ar t` lists `debian-binary`, `control.tar.gz`, `data.tar.gz`) and against GNU tar 1.35, which auto-detects gzip, xz and zstd on extract. That matters because the container's compression is electron-builder's choice, not ours, and fpm commonly emits `data.tar.xz` while the sample here was `.tar.gz`. Also note the control archive's members are named `control` and `md5sums` — **not** `./control`; the `./`-prefixed form fails.
+
+- [ ] **Step 1b: Test the verifier against synthetic packages**
+
+`test/verifyPackage.test.js` builds `.deb` files out of `ar` and `tar` — the same two tools the verifier itself uses, so it needs nothing the host does not already have — and drives the real script through `--deb`, eleven cases in all:
+
+- a correctly shaped package passes, and the app-id assertion appears in the output
+- the desktop file named `mercury-browser.desktop`, i.e. `syncDesktopName` off — **the failure this task exists for**
+- a `StartupWMClass` that does not match, a `MimeType` without `x-scheme-handler/mercury`, `Name=Min`, an `Icon=` name never installed, an `Exec=` naming `mercury`, a missing binary, a binary without the execute bit, `Package: min`, a mis-named artifact, and a version that disagrees with `package.json`
+- a path that does not exist produces a message and no stack trace
+
+Worth the extra file because the verifier would otherwise only ever run on a runner, where a bug inside it is indistinguishable from a genuinely wrong package. It is the only piece of SP0 that cannot be exercised by building locally, so it is the one that most needs a fixture.
 
 - [ ] **Step 2: Document the local limitation**
 
@@ -800,7 +966,7 @@ git commit -m "test: verify packaged desktop file, app id and executable name"
 
 `.github/workflows/ci.yml`, triggered on `push` to `main`, `pull_request`, and `workflow_dispatch`:
 
-- job `test` on `ubuntu-latest`, Node 22: `npm install --omit=optional`, `npm test` (the `standard` linter), `npm run test:unit`
+- job `test` on `ubuntu-latest`, Node 22: `npm install --omit=optional`, `npm run test:lint` (no new lint errors — a baseline diff, not `npm test`; see Global Constraints), `npm run test:unit`
 - job `package` on `ubuntu-latest`, Node 22, `needs: test`: `npm install --omit=optional`, `npm run build`, then the spec §6 built-output assertions, then `npm run buildDebian`, then `npm run verifyPackage`
 
 The built-output assertions in the `package` job, per spec §6:
@@ -812,9 +978,15 @@ node -e "const d=require('decomment'),fs=require('fs');for(const f of fs.readdir
 
 Because `.npmrc` redirects npm's cache into the workspace, it now holds `${{ github.workspace }}/.cache/npm` on the runner too. That is harmless, and worth caching with `actions/cache` keyed on `hashFiles('package.json')` — the alternative is re-downloading the whole dependency tree on every run. Add it to the `package` job's cache and key it on `package.json`.
 
+Two things needed adjusting while writing it. **`actions/setup-node`'s `cache: npm` must not be used:** it requires a lockfile and this repository has none, so the job would fail before it installed anything — the cache is declared explicitly with `actions/cache` instead, which is why the key is `package.json`'s hash rather than a lockfile's. And the Electron binary is a ~100 MB download that `setupDevEnv.js` needs at `postinstall` time, so `~/.cache/electron` is cached beside the npm cache.
+
+The two built-output assertions were run on the development host before being baked into CI, since a wrong assertion there is a red build for everyone: 0 whole-word `Min` and 356 `Mercury` in `dist/localization.build.js`, and all locales parse.
+
 - [ ] **Step 2: Update the upstream packaging workflow**
 
 `build-packages.yml` is `workflow_dispatch`-only and builds Windows, macOS and Linux. Trim it to what Mercury v0.1 ships (deb, rpm, AppImage) and let `ci.yml` own the push/PR path. Do not delete the macOS/Windows matrix outright — mark it as the platform-later path so it is not rebuilt from scratch.
+
+Keep it as a second job with `if: ${{ false }}` rather than as commented-out YAML: the configuration stays parseable, stays visible in the Actions UI as a skipped job, and cannot be run by accident — which a comment also achieves, but a comment cannot be validated and is the first thing to rot. The job carries a note that it would not work if enabled, because both scripts still name Min's artifacts while electron-builder now emits `Mercury.app`.
 
 - [ ] **Step 3: Confirm the quota assumption**
 
@@ -823,9 +995,16 @@ The repository is public (`Divine-Owl/Mercury-Browser`), so Actions minutes are 
 - [ ] **Step 4: Push and watch a run**
 
 ```bash
-git push -u origin main
+git push -u origin sp0-identity-foundation
 ```
-Then dispatch or observe the workflow and confirm both jobs pass. **This is the first end-to-end proof that the identity wiring produces a correct package.**
+
+Under this sub-project's isolation ruling the branch is pushed and a **draft pull request against `main` is opened**, rather than pushing `main` — see the ledger's ruling. That is not only a process preference: `workflow_dispatch` **cannot** be used to run `ci.yml` on this branch, because GitHub only offers a workflow for dispatch once the file exists on the default branch. `pull_request` is the trigger that works for an unreviewed branch, which is why `ci.yml` declares it.
+
+Then observe the run and confirm both jobs pass. **This is the first end-to-end proof that the identity wiring produces a correct package.**
+
+**The first run failed, at `Build the .deb`, and that is the argument for the job existing.** `.npmrc` redirects npm's cache into the checkout (`cache=./.cache/npm`), which is what the containment constraint asks for, and `scripts/createPackage.js`'s `files` list had no exclusion for it. The app directory is packaged from the repository root, so `.cache/npm` was being copied into `resources/app`; npm rewrites and deletes its own debug logs while it runs, the copy raced that, and the build died with `ENOENT: copyfile .../.cache/npm/_logs/<ts>-debug-0.log -> dist/app/linux-unpacked/resources/app/.cache/npm/_logs/...`. No local run could see it: the failure needs a fresh `npm install` writing logs while electron-builder enumerates the directory, and packaging is CI-only.
+
+The fix is two patterns, in electron-builder's own form for this exact directory name (`fileMatcher.js` itself uses `!.cache{,/**/*}`), with a guard on each side: a unit test that the exclusions are present in `scripts/createPackage.js`, and a `verifyPackage.js` check that no `.cache` or `.venv` directory exists anywhere in the extracted data tree. The verifier check is the one that catches a `files` pattern that stops pruning a directory — a failure mode that otherwise looks like success, because the build completes and ships a build machine's download cache to users.
 
 - [ ] **Step 5: Commit**
 
@@ -885,6 +1064,115 @@ git add -A
 git commit -m "test: runtime verification of mercury:// rendering and network isolation"
 ```
 
+**Corrections and findings, recorded after the task was executed.** Every item below
+was found by running the specs against the real app, not by reading the plan.
+
+**`playwright` cannot run these specs; the runner is `@playwright/test`.** The plan's
+`npm install -D playwright` plus `playwright test test/e2e` fails at the first
+invocation: that package's CLI offers `open`, `codegen`, `install`, `uninstall`,
+`install-deps`, `cr`, `ff`, `wk`, `screenshot`, `pdf`, `show-trace` and `trace`, and
+no `test`. `@playwright/test` installs the same `playwright` binary *plus* the runner,
+and depends on `playwright`, so the dependency is installed as `@playwright/test` and
+the direct `playwright` entry is redundant — the specs import both `test`/`expect` and
+`_electron` from it. The constraint the plan was protecting still holds and was
+checked: no browser binaries are downloaded, because in 1.64.1 that only happens via
+an explicit `playwright install`, and `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` is a no-op
+(there is no postinstall to skip).
+
+**`--standard-schemes` is not on the main process's command line, and cannot be.**
+`registerSchemesAsPrivileged` appends the switch after the process has started, so the
+main process's own `/proc/<pid>/cmdline` never contains it — the plan's assertion was
+unsatisfiable, in the plan *and* in spec §6. The assertion is kept and moved to where
+it is true: child processes inherit it, so the spec reads the pids back from the app
+(`webContents.getAllWebContents().map(wc => wc.getOSProcessId())`) rather than
+pattern-matching `/proc` for a process name. Around it are the facts that actually
+decide whether the rename worked: `app.commandLine.getSwitchValue('standard-schemes')`
+and `...('secure-schemes')` both `mercury`, `protocol.isProtocolHandled('mercury')` in
+both the default session and `persist:webcontent`, and in the renderer
+`location.origin === 'mercury://app'` with `window.isSecureContext === true`. Verified
+by mutation: deleting `secure: true` from the privileges fails the spec.
+
+**`--proxy-server` does not work — the app replaces it.** `js/util/proxy.js` calls
+`session.setProxy(proxyConfig)` for every session and again on `session-created`, and
+`proxyConfig` is `{}` (a direct connection) unless the app's own `proxy` setting is
+set. The command-line switch is therefore overridden as soon as the first session
+exists, the recorder sees nothing, and a spec asserting "no minbrowser host was seen"
+passes while proving nothing. The network spec instead seeds Mercury's own
+`settings.json` before launch with `{ proxy: { type: 1, proxyRules:
+'127.0.0.1:<port>', proxyBypassRules: '' } }`, which is both the app's real
+configuration path and the only way to observe its traffic.
+
+**The network spec got a positive control, so it cannot pass vacuously.** It first
+navigates to `http://example.com/` and waits for the recorder to log it, and only then
+asserts that no logged host matches `/minbrowser/`. Verified by mutation: injecting
+`fetch('https://minbrowser.org/probe-mutation')` into the browser UI made the spec
+fail with `["minbrowser.org"]` in the received array.
+
+**The 60-second wait is 20 seconds.** The paths that used to reach out — telemetry,
+the update feed, the first-run tour, the survey, page translation — were all
+startup- or action-triggered, and nothing left in `main/` or `js/` schedules periodic
+network work, so a minute of idling adds no coverage that the positive control does
+not already provide more convincingly.
+
+**The specs drive the UI by mouse, because synthetic keys never reach the app.**
+Min routes shortcuts through `before-input-event` in the main process (see the comment
+at the top of `js/keybindings.js`) and forwards them to the UI, but Playwright
+delivers key events straight to the renderer, so `Ctrl+T` and `Ctrl+L` do nothing
+here. The address bar is already open and focused on the empty first tab of a fresh
+launch, and afterwards it is reopened by clicking the focused tab's title — an
+ordinary DOM click, which `js/navbar/tabBar.js`'s click handler turns into
+`tabEditor.show`. That is a real user path, and it is why the spec types the *short*
+`mercury://settings` rather than loading the long URL directly: the rewrite lives in
+the UI's urlParser, so the long URL would prove nothing about the rename. The value
+check before Enter is retained; a mismatch means the app is in an unexpected state,
+not that the test was slow.
+
+**The rendering assertion was too weak, and only a mutation revealed it.** "The
+settings page has visible text and headings" still passes with the preload's origin
+guard mutated back to `min://`: the page's labels are static HTML and render whatever
+the preload does, and the failure mode being guarded against throws nothing at all.
+The spec now seeds `showDividerBetweenTabs: true` before launch and requires the
+checkbox to be *checked* on screen, because a setting *value* can only arrive through
+the guard. Re-run against the mutation, both this and the round-trip test fail.
+
+**A hermetic HOME replaces "assert the real `~/.config/Min` mtime is unchanged".**
+Each launch gets a throwaway directory with a fake `~/.config/Min` already in it, and
+the spec asserts all of the plan's branches at once: the directory exists, its mtime
+is unchanged, its seeded `settings.json` is byte-identical, and no `Singleton*` file
+appears there — while Mercury's own `SingletonLock` is present in
+`~/.config/Mercury`, which is the concrete reason it can run beside a real Min. This
+is stronger than the plan's version and also non-flaky: Min is installed and running
+on the development machine, rewriting its own mtime continuously, so the plan's
+assertion would pass in CI and fail locally, and the tempting repair would be to
+weaken it. `XDG_CONFIG_HOME` is set alongside `HOME` because it takes precedence for
+`app.getPath('appData')` — without it the assertion would be watching the wrong
+directory and could never fail.
+
+**Files beyond the plan's three.** `test/e2e/harness.js` (launch plumbing shared by
+both specs) and `playwright.config.js` (one worker, 120 s timeout, retries on CI only,
+so a retry absorbs runner flakiness in CI while a local run reports it). Spec SC5's
+other half is covered by a test for `mercury://newtab` that asserts the short form
+resolves and the view loads, with no content assertion on purpose:
+`pages/newtab/index.html` is an empty `<body>` shell — in upstream Min too, verified
+against the installed 1.35.7 copy — so "has visible text" would be false for the right
+reason. CI gains a third job, `e2e`, needing `test`, running
+`xvfb-run -a npm run test:e2e` and uploading `test-results/` on failure. It is
+separate from `package` so the two run in parallel and report independently. The
+runner has xvfb preinstalled and a real display is never needed; the harness passes
+`--no-sandbox --disable-gpu --disable-dev-shm-usage` itself. Locally the suite is 8
+tests in ~25 s, clean on three consecutive runs.
+
+**Two inherited upstream quirks were observed while driving the app and are recorded,
+not fixed here** (both are candidates for SP1, and both are in the ledger's deferred
+list). The settings tab's title and the window title each append the product name, so
+a settings window reads `Preferences | Mercury | Mercury`; upstream Min 1.35.7
+produces `Preferences | Min | Min` from the same two places
+(`pages/settings/settings.js` line 1 and `js/browserUI.js`). And the settings page
+loads `js/util/searchEngine.js`, `js/util/theme.js` and `js/util/passwordManager.js`
+as raw scripts, which call browserify-path `require('util/settings/settings.js')` and
+cannot resolve outside the bundle — three `Cannot find module` errors in the renderer
+console, byte-identical in the installed Min, with the page still functional.
+
 ---
 
 ### Task 13: Licensing, attribution and the upstream hedge
@@ -912,7 +1200,7 @@ Note in the file that Apache-2.0 §4(b) asks for prominent notices on **modified
 
 - [ ] **Step 3: Rewrite the README**
 
-Replace Min's README entirely: what Mercury is, that it is a fork of Min v1.35.7 under Apache-2.0, that it collects **no** usage statistics, how to build (`npm install && npm run build`), how to package (`npm run buildDebian` / `buildAppImage` / `buildRedhat`), how to run the tests (`npm test`, `npm run test:unit`, `npm run test:e2e`), the attribution to Min, and a pointer to `docs/superpowers/specs/` for design decisions. Remove Min's donation, download and community links.
+Replace Min's README entirely: what Mercury is, that it is a fork of Min v1.35.7 under Apache-2.0, that it collects **no** usage statistics, how to build (`npm install && npm run build`), how to package (`npm run buildDebian` / `buildAppImage` / `buildRedhat`), how to run the tests (`npm run test:unit`, `npm run test:lint`, `npm run test:e2e`; note that upstream's `npm test` reports 643 long-standing lint errors and is informational only), the attribution to Min, and a pointer to `docs/superpowers/specs/` for design decisions. Remove Min's donation, download and community links.
 
 - [ ] **Step 4: Write the hedge procedure**
 
@@ -925,6 +1213,38 @@ git add -A
 git commit -m "docs: NOTICE, rewritten README and upstream hedge procedure"
 ```
 
+**Corrections and findings, recorded after the task was executed.**
+
+**Step 1's check does not test what it says.** `git diff db616c9 -- LICENSE.txt` prints the
+file as *newly added* — because `db616c9` is the spec commit and `LICENSE.txt` arrived
+afterwards, in the import commit `03b139a`. It reads like a failure and would pass a
+mindless "no output means fine" reading only if it printed nothing, which it never
+will. The check that means what the step intends is against the import commit:
+`git log --oneline -- LICENSE.txt` lists `03b139a` and nothing else, and
+`git diff 03b139a --stat -- LICENSE.txt` is empty. Verified that way; the file is
+Min's Apache-2.0 text, untouched, and no source file in `main/`, `js/` or `pages/`
+carries a per-file notice to preserve (Min ships none), which is what makes the §4(b)
+question in the NOTICE a genuine open question rather than an oversight.
+
+**The attribution claim needed a check on the artifact, not just a NOTICE in the tree.**
+Apache-2.0 §4(d) requires the notices to travel with a distribution, and the app binary
+is byte-identical whether or not `LICENSE.txt` and `NOTICE` are inside
+`resources/app`: `createPackage.js`'s `files` list includes them today only because
+nothing excludes them, which is one `!**/*.txt` or `!LICENSE*` away from shipping
+somebody else's code with no attribution — silently, since unlike the `desktopName`
+failure this one leaves a package that works perfectly. `verifyPackage` now reads both
+files out of the unpacked tree (`opt/Mercury/resources/app/`), requires the licence to
+read as Apache-2.0 and the NOTICE to name the upstream repository and version, and
+`test/verifyPackage.test.js` covers a package that ships neither and a NOTICE that
+does not name upstream. Confirmed against the real artifact rather than locally: the
+`package` job's `verifyPackage` step passed with the check in place, and a `.deb` only
+exists on a runner here.
+
+**The README also states the gaps, not only the features.** No update notification at
+all for AppImage users (decision 7's consequence, and the one place a security release
+can go unnoticed), unsigned packages (no signing budget yet), and Linux-only. A README
+that named only what works would be the same failure mode as an untested claim.
+
 ---
 
 ## Done when
@@ -933,5 +1253,57 @@ Every item in the spec's success criteria holds:
 
 - `npm run test:unit` passes — including the isolation, scheme and localisation tests.
 - The `package` CI job builds a `.deb` and `verifyPackage` confirms `org.mercury.Browser.desktop`, `StartupWMClass=org.mercury.Browser`, and a `mercury-browser` executable.
-- The `e2e` CI job confirms `mercury://settings` renders, the version banner reads `Mercury`, `--standard-schemes=mercury` is on the command line, and no request reaches a `minbrowser.*` host.
+- The `e2e` CI job confirms `mercury://settings` renders with its settings values applied, the version banner reads `Mercury`, `mercury://` is registered as a standard and secure scheme (the switch reached the child processes' command lines), the app's state stays out of `~/.config/Min`, and no request reaches a `minbrowser.*` host.
 - Manually, on your desktop: `~/.config/Mercury` is created while `~/.config/Min` is untouched, Min and Mercury run at the same time without a singleton collision, and the task switcher groups the Mercury window under `org.mercury.Browser` with the Mercury icon.
+
+---
+
+## Review round: what the whole-branch review changed
+
+A fresh reviewer was given the range `03b139a..cbc8836` and the spec, with no
+access to the sessions that produced it, and returned "ready to merge with
+fixes": no Critical findings, four Important, and a list of Minor items. The
+Important ones were all real, and two of them were claims the sub-project had made
+about itself:
+
+- **The `.deb` advertised Min as its homepage.** `package.json` still carried
+  Min's `repository.url`, and electron-builder derives the package's `Homepage`
+  from it. An artifact named Mercury, shipped by Mercury, told every package
+  manager that its home was `github.com/minbrowser/min`. The plan said to leave
+  `repository` alone; that was a plan defect, and nothing in the pipeline read the
+  field, so it would have shipped silently. Fixed, and now checked.
+- **The README overclaimed CI.** It said all three package formats were built and
+  verified in CI; only the `.deb` is. The claim is now the accurate one.
+- **`docs/statistics.md` survived**, still describing the telemetry this fork
+  removed, and instructing the reader how to turn it off. The spec names that file
+  as repoint-or-remove. Removed.
+- **The repository's own affordances still pointed upstream.** `SECURITY.md`
+  routed vulnerability reports to Min's advisory form and to a third party's inbox;
+  `.github/FUNDING.yml` sent sponsorship to Min's author; the bug-report template
+  asked for a "Min Version". All repointed or removed (FUNDING.yml removed: this
+  project accepts no sponsorship).
+
+Minor items were ruled on individually rather than waved through:
+
+- **Accepted and fixed:** the test suite was being packaged (324 KB of specs and a
+  key fixture inside `resources/app`, with `verifyPackage` checking neither);
+  inflected and non-Latin forms of the name survived in four locales, three of
+  them in live UI; three CI jobs shared one cache key, so the Electron cache they
+  asked for was never saved; the lint gate passed vacuously if the linter was
+  missing; `ext/filterLists/minFilters.txt` kept Min's name; the `upstream` remote
+  had a push URL despite the hedge document calling it fetch-only.
+- **Rejected, with evidence:** the claim that the artifact-name regex mis-parses a
+  prerelease version. `mercury-browser-0.1.0-beta-amd64.deb` parses as version
+  `0.1.0-beta` and arch `amd64` because the version group is greedy and the arch
+  group cannot contain a dash, so it compares correctly against a `0.1.0-beta`
+  `package.json`; it was verified directly rather than argued about.
+- **Recorded, not fixed:** the reader view had no runtime coverage even though SC5
+  names it. That gap was closed rather than narrowed (the reader now has an
+  end-to-end test), because weakening a success criterion to match what was
+  verified is the failure mode this sub-project has been avoiding throughout.
+
+The reviewer also checked the central claim adversarially and could not falsify it:
+the surviving `minbrowser` references in the tree are issue-URL comments, the live
+paths point at the fork's repository, the 35 locale key sets are identical to the
+import, and the built-output check on CI greps the bundle rather than the source.
+

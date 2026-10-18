@@ -21,8 +21,12 @@ if [ ! -f "$MERCURY_ROOT/scripts/devEnv.sh" ]; then
   return 1 2>/dev/null || exit 1
 fi
 
-# Electron's binary download (~250MB), read by @electron/get.
-export ELECTRON_CACHE="$MERCURY_ROOT/.cache/electron"
+# Electron's binary download (~120MB). Read by electron's own install.js as
+# `cacheRoot: process.env.electron_config_cache` — NOT ELECTRON_CACHE. That
+# legacy name is ignored by @electron/get, whose Cache class falls back to
+# env-paths('electron').cache, i.e. ~/.cache/electron, which is how the first
+# install leaked 120MB into $HOME.
+export electron_config_cache="$MERCURY_ROOT/.cache/electron"
 
 # electron-builder's fpm / appimage / rpm helpers, read by electron-builder.
 export ELECTRON_BUILDER_CACHE="$MERCURY_ROOT/.cache/electron-builder"

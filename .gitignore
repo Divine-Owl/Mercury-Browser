@@ -8,6 +8,11 @@ main.build.js
 package-lock.json
 yarn.lock
 
+# Playwright: failure artifacts and its HTML report. Neither is source, and
+# test-results/ is what the CI job uploads when the runtime specs fail.
+/test-results/
+/playwright-report/
+
 # Local build state. Everything cached by a local install lives under .cache/
 # (see .npmrc and scripts/devEnv.sh) so that removing this directory removes
 # it all with nothing left in $HOME.
