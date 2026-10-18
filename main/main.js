@@ -20,7 +20,7 @@ const {
 } = electron
 
 crashReporter.start({
-  submitURL: 'https://minbrowser.org/',
+  submitURL: 'https://github.com/Divine-Owl/Mercury-Browser',
   uploadToServer: false,
   compress: true
 })

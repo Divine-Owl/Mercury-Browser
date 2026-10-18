@@ -376,7 +376,7 @@ git commit -m "feat: remove usage statistics collection, setting and toggle"
 
 **Files:**
 - Delete: `js/searchbar/updateNotifications.js`
-- Modify: `js/sessionRestore.js`, `main/main.js`, `main/menu.js`, `js/webviewMenu.js`, `js/navbar/contentBlockingToggle.js`, `pages/settings/index.html`
+- Modify: `js/sessionRestore.js`, `main/main.js`, `main/menu.js`, `js/webviewMenu.js`, `js/navbar/contentBlockingToggle.js`, `pages/settings/index.html`, `pages/settings/settings.js`
 - Create: `test/no-min-infrastructure.test.js`
 
 **Interfaces:**
@@ -419,13 +419,15 @@ Expected: FAIL — `js/searchbar/updateNotifications.js` still exists and `js/se
 
 - [ ] **Step 3: Delete the update feed**
 
-`git rm js/searchbar/updateNotifications.js`, then `grep -rn "updateNotifications" js/ main/` and remove the `require` and the plugin registration from `js/default.js`. Update checking is removed, not gated: Min's check defaults to *enabled* (`settings.get('updateNotificationsEnabled') !== false`), so leaving the module in place would require an inverted default to be safe.
+`git rm js/searchbar/updateNotifications.js`, then `grep -rn "updateNotifications" js/ main/ pages/ index.html` and remove the require/initialize line from `js/default.js` (the searchbar plugin registration lives inside the deleted module itself). Update checking is removed, not gated: Min's check defaults to *enabled* (`settings.get('updateNotificationsEnabled') !== false`), so leaving the module in place would require an inverted default to be safe.
+
+Then remove the setting it controlled, exactly as Task 3 removed the usage-statistics toggle: the `/* update notifications setting */` block in `pages/settings/settings.js` and the `checkbox-update-notifications` `setting-section` in `pages/settings/index.html`. **This is not optional.** The third test scans every source file for `/updateNotifications/`, and `pages/settings/settings.js` defines `updateNotificationsCheckbox` and calls `settings.get('updateNotificationsEnabled')`, so leaving that block fails this task's own test. The markup's id is the hyphenated `checkbox-update-notifications`, which the camelCase pattern does *not* match — remove it anyway, or a dead toggle ships to users.
 
 - [ ] **Step 4: Remove the first-run tour and the dead survey**
 
 In `js/sessionRestore.js`:
-- delete the `try { // first run, show the tour ... }` branch that adds a tab at `https://minbrowser.github.io/min/tour`, so first run falls through to opening a new tab,
-- delete the `/* Disabled - show a user survey on startup ... */` and `/* Disabled - show user survey ... */` comment blocks — including the `fetch('https://minbrowser.org/survey/survey15.json')` inside them. Both are already commented out, so this is dead-code removal, not behaviour change.
+- replace the first-run branch — the one that opens `https://minbrowser.github.io/min/tour` — with a plain new tab, matching the "the data isn't restorable" branch immediately below it: `tasks.setSelected(tasks.add())`, then `browserUI.addTab(tasks.getSelected().tabs.add())`. **Do not simply delete the branch.** First run does reach this code — `restoreFromFile` runs when `window.globalArgs['initial-window']` is set, which is the first window on a fresh profile — and falling through reaches `JSON.parse(undefined)`, which throws a `SyntaxError` and sends the user to the session-restore-error page instead of a usable new tab. The branch is a first-run handler that happens to open the tour, not tour code that happens to run first.
+- delete the `/* Disabled - show a user survey on startup ... */` and `/* Disabled - show user survey ... */` comment blocks — including the `fetch('https://minbrowser.org/survey/survey15.json')` inside them. Both are already commented out, so this is dead-code removal, not behaviour change. `shouldShowSurvey` is declared inside the first of those comments and read inside the second, so the two must go together or the deletion leaves a dangling reference in prose.
 
 - [ ] **Step 5: Repoint the crash reporter**
 

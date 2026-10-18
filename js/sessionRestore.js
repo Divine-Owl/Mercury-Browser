@@ -67,27 +67,15 @@ const sessionRestore = {
     3 - discard old tabs and open new task
     */
 
-    /*
-    Disabled - show a user survey on startup
-    // the survey should only be shown after an upgrade from an earlier version
-    var shouldShowSurvey = false
-    if (savedStringData && !localStorage.getItem('1.15survey')) {
-      shouldShowSurvey = true
-    }
-    localStorage.setItem('1.15survey', 'true')
-    */
-
     try {
-      // first run, show the tour
+      // first run: there is no session to restore, so start with an empty tab.
+      // This has to stay a branch of its own. Deleting it and falling through
+      // would reach JSON.parse(undefined), which throws, and land the user on
+      // the session-restore-error page instead of a usable new tab.
       if (!savedStringData) {
-        tasks.setSelected(tasks.add()) // create a new task
+        tasks.setSelected(tasks.add())
 
-        var newTab = tasks.getSelected().tabs.add({
-            url: 'https://minbrowser.github.io/min/tour'
-        })
-        browserUI.addTab(newTab, {
-         enterEditMode: false
-        })
+        browserUI.addTab(tasks.getSelected().tabs.add())
         return
       }
 
@@ -140,31 +128,6 @@ const sessionRestore = {
           browserUI.addTask()
         }
       }
-
-      /* Disabled - show user survey
-      // if this isn't the first run, and the survey popup hasn't been shown yet, show it
-      if (shouldShowSurvey) {
-        fetch('https://minbrowser.org/survey/survey15.json').then(function (response) {
-          return response.json()
-        }).then(function (data) {
-          setTimeout(function () {
-            if (data.available && data.url) {
-              if (tasks.getSelected().tabs.isEmpty()) {
-                webviews.update(tasks.getSelected().tabs.getSelected(), data.url)
-                tabEditor.hide()
-              } else {
-                var surveyTab = tasks.getSelected().tabs.add({
-                  url: data.url
-                })
-                browserUI.addTab(surveyTab, {
-                  enterEditMode: false
-                })
-              }
-            }
-          }, 200)
-        })
-      }
-      */
     } catch (e) {
       // an error occured while restoring the session data
 
