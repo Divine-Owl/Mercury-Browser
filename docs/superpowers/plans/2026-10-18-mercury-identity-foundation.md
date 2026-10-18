@@ -892,7 +892,7 @@ git commit -m "feat: packaging identity, bundled electron-builder 26, maintainer
 ### Task 10: Packaged-artifact verification
 
 **Files:**
-- Create: `scripts/verifyPackage.js`
+- Create: `scripts/verifyPackage.js`, `test/verifyPackage.test.js`
 - Modify: `package.json` (add `verifyPackage` script)
 
 **Interfaces:**
@@ -912,10 +912,32 @@ This is the only check that can catch a silently wrong `desktopName` wiring, bec
 - that file's `Exec=` names `mercury-browser`
 - `<tmp>/opt/Mercury/mercury-browser` exists and is executable
 - the desktop file declares `MimeType=` including `x-scheme-handler/mercury`
+- the desktop file carries no `\bMin\b`
+- the `Icon=` name resolves to a file actually installed under `hicolor/*/apps/`
+- `usr/share/applications` contains **exactly one** `.desktop` file, and it is ours
+- the control archive's `Package:` is `mercury-browser` and its `Maintainer:` starts with `Mercury Developers`
+- the version in the artifact filename equals `package.json`'s `version`
 
-On success print each assertion and exit 0; on failure print the assertion, the observed value and exit 1.
+The additions earn their place. The `Icon=` check is the only one that catches the desktop entry and the installer disagreeing about the icon's name: `FpmTarget` installs it as `<executableName>.png` while the desktop entry says `Icon=<executableName>`, so nothing in either file states the name they have in common, and a rename on one side alone is invisible until the launcher shows a blank icon. The exactly-one-`.desktop` check closes the loophole in the basename assertion — a package could contain the expected file *and* a stray one, and only the count notices.
+
+Assertions are collected rather than short-circuited: one run reports every problem, not just the first. On success print each assertion and exit 0; on failure print the assertion, the observed value and exit 1, and keep the extraction directory so the offending file can be read directly.
+
+Two flags make it inspectable instead of CI-only: `--deb <path>` verifies a named package rather than searching `dist/app`, and `--keep` leaves the extraction in place on success as well.
+
+Each tarball is unpacked into its own directory named for its prefix (`control/`, `data/`) rather than both into one tree, so every later assertion can name a path that means one thing.
 
 The extraction is `ar x` then `tar -xf` — **no compression flags**. Verified against a real `.deb` on this host (`ar t` lists `debian-binary`, `control.tar.gz`, `data.tar.gz`) and against GNU tar 1.35, which auto-detects gzip, xz and zstd on extract. That matters because the container's compression is electron-builder's choice, not ours, and fpm commonly emits `data.tar.xz` while the sample here was `.tar.gz`. Also note the control archive's members are named `control` and `md5sums` — **not** `./control`; the `./`-prefixed form fails.
+
+- [ ] **Step 1b: Test the verifier against synthetic packages**
+
+`test/verifyPackage.test.js` builds `.deb` files out of `ar` and `tar` — the same two tools the verifier itself uses, so it needs nothing the host does not already have — and drives the real script through `--deb`, eleven cases in all:
+
+- a correctly shaped package passes, and the app-id assertion appears in the output
+- the desktop file named `mercury-browser.desktop`, i.e. `syncDesktopName` off — **the failure this task exists for**
+- a `StartupWMClass` that does not match, a `MimeType` without `x-scheme-handler/mercury`, `Name=Min`, an `Icon=` name never installed, an `Exec=` naming `mercury`, a missing binary, a binary without the execute bit, `Package: min`, a mis-named artifact, and a version that disagrees with `package.json`
+- a path that does not exist produces a message and no stack trace
+
+Worth the extra file because the verifier would otherwise only ever run on a runner, where a bug inside it is indistinguishable from a genuinely wrong package. It is the only piece of SP0 that cannot be exercised by building locally, so it is the one that most needs a fixture.
 
 - [ ] **Step 2: Document the local limitation**
 

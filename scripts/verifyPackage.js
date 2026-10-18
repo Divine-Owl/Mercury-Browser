@@ -1,0 +1,251 @@
+#!/usr/bin/env node
+/*
+Verifies that a packaged .deb carries the identity it is supposed to.
+
+This exists because the interesting failure in Task 9 is silent. If
+`linux.syncDesktopName` is absent or `package.json` loses `desktopName`, the build
+still succeeds and still produces a working browser - it just installs
+/usr/share/applications/mercury-browser.desktop instead of
+org.mercury.Browser.desktop, and desktop environments stop associating the running
+window with its launcher entry. Nothing else in the pipeline notices. So the check
+here is the exact basename, and every other assertion is arranged around it.
+
+The .deb is read with `ar` and `tar` rather than `dpkg-deb`: a .deb is an `ar`
+archive holding a control tarball and a data tarball, `ar` and `tar` are on every
+runner, and `dpkg-deb` is not on the CachyOS/Arch host this was developed on. No
+compression flags are passed to `tar`, which detects gzip, xz and zstd itself -
+the container's compression is electron-builder's choice and not ours to assume.
+
+  node scripts/verifyPackage.js                    # the first .deb under dist/app
+  node scripts/verifyPackage.js --deb <path>       # a specific package
+  node scripts/verifyPackage.js --deb <path> --keep # leave the extraction behind
+
+Exits 0 when every check passes, 1 otherwise. On failure the extraction directory
+is kept and printed, so the wrong file can be read directly.
+*/
+
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
+const { execFileSync } = require('child_process')
+
+const ROOT = path.join(__dirname, '..')
+const DIST = path.join(ROOT, 'dist', 'app')
+
+function parseArgs (argv) {
+  const opts = { deb: null, keep: false, help: false }
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]
+    if (arg === '--deb') opts.deb = argv[++i]
+    else if (arg === '--keep') opts.keep = true
+    else if (arg === '--help' || arg === '-h') opts.help = true
+    else throw new Error(`unknown argument: ${arg}`)
+  }
+  return opts
+}
+
+function have (command) {
+  try {
+    execFileSync('sh', ['-c', `command -v ${command}`], { stdio: 'ignore' })
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
+function findDeb () {
+  if (!fs.existsSync(DIST)) return null
+  const matches = fs.readdirSync(DIST)
+    .filter(name => /^mercury-browser-.*\.deb$/.test(name))
+    .sort()
+  return matches.length === 0 ? null : path.join(DIST, matches[0])
+}
+
+// A .deb is an ar archive: debian-binary, control.tar.*, data.tar.*  Extracting
+// each tarball into a directory named after its prefix keeps the two trees apart -
+// control/control would otherwise collide with data/ if both went to one place.
+function extract (debPath, tmp) {
+  execFileSync('ar', ['x', debPath], { cwd: tmp })
+  const members = fs.readdirSync(tmp).filter(name => /\.tar(\.[a-z0-9]+)*$/.test(name))
+  if (members.length === 0) throw new Error('no *.tar.* members inside the .deb')
+  for (const member of members) {
+    const dest = path.join(tmp, member.startsWith('control') ? 'control' : 'data')
+    fs.mkdirSync(dest, { recursive: true })
+    execFileSync('tar', ['-xf', path.join(tmp, member), '-C', dest])
+  }
+}
+
+function desktopEntry (text) {
+  const entry = {}
+  for (const line of text.split('\n')) {
+    const match = /^([A-Za-z0-9-]+)=(.*)$/.exec(line.trim())
+    if (match) entry[match[1]] = match[2]
+  }
+  return entry
+}
+
+function main () {
+  const opts = parseArgs(process.argv.slice(2))
+  if (opts.help) {
+    console.log('usage: node scripts/verifyPackage.js [--deb <path>] [--keep]')
+    return 0
+  }
+
+  // A clear message, not a stack trace: this is the one thing that stops the
+  // script running somewhere unexpected.
+  for (const tool of ['ar', 'tar']) {
+    if (!have(tool)) {
+      console.error(`verifyPackage: ${tool} is required and was not found in PATH`)
+      console.error('  a .deb is an ar archive holding tar archives; either tool can unpack it')
+      return 1
+    }
+  }
+
+  const debPath = opts.deb ? path.resolve(opts.deb) : findDeb()
+  if (!debPath) {
+    console.error(`verifyPackage: no mercury-browser-*.deb found in ${path.relative(ROOT, DIST)}`)
+    console.error('  build one first: npm run buildDebian')
+    return 1
+  }
+  if (!fs.existsSync(debPath)) {
+    console.error(`verifyPackage: no such file: ${debPath}`)
+    return 1
+  }
+
+  const pkg = require('../package.json')
+  const basename = path.basename(debPath)
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mercury-verify-'))
+
+  let failures = 0
+  let passes = 0
+  const check = (label, ok, observed) => {
+    if (ok) {
+      passes++
+      console.log(`  ok    ${label}`)
+    } else {
+      failures++
+      console.log(`  FAIL  ${label}`)
+      console.log(`        observed: ${observed}`)
+    }
+  }
+
+  console.log(`verifyPackage: ${debPath}`)
+
+  try {
+    // ---- the artifact name, before anything is unpacked
+    const nameMatch = /^mercury-browser-(.+)-([^-]+)\.deb$/.exec(basename)
+    check(
+      `artifact is named mercury-browser-<version>-<arch>.deb (found ${basename})`,
+      Boolean(nameMatch),
+      'expected mercury-browser-0.1.0-amd64.deb and the like'
+    )
+    if (nameMatch) {
+      check(
+        `artifact version matches package.json (${pkg.version})`,
+        nameMatch[1] === pkg.version,
+        `filename says ${nameMatch[1]}, package.json says ${pkg.version}`
+      )
+    }
+
+    extract(debPath, tmp)
+
+    // ---- control metadata
+    const controlPath = path.join(tmp, 'control', 'control')
+    check('control archive unpacks to a control file', fs.existsSync(controlPath), `${controlPath} is missing`)
+    if (fs.existsSync(controlPath)) {
+      const control = fs.readFileSync(controlPath, 'utf8')
+      const field = key => (new RegExp(`^${key}: (.*)$`, 'm').exec(control) || [])[1]
+      check(
+        'the Debian package is named mercury-browser',
+        field('Package') === 'mercury-browser',
+        `Package: ${field('Package')}`
+      )
+      check(
+        'the package maintainer is Mercury Developers',
+        (field('Maintainer') || '').startsWith('Mercury Developers'),
+        `Maintainer: ${field('Maintainer')}`
+      )
+    }
+
+    // ---- the desktop entry: this is the reason the script exists
+    const applications = path.join(tmp, 'data', 'usr', 'share', 'applications')
+    const installed = fs.existsSync(applications) ? fs.readdirSync(applications).sort() : []
+    const expectedDesktop = `${pkg.desktopName}.desktop`
+    check(
+      `usr/share/applications contains exactly ${expectedDesktop}`,
+      installed.length === 1 && installed[0] === expectedDesktop,
+      `found ${installed.length === 0 ? 'nothing' : installed.join(', ')}`
+    )
+
+    const desktopPath = path.join(applications, expectedDesktop)
+    if (fs.existsSync(desktopPath)) {
+      const entry = desktopEntry(fs.readFileSync(desktopPath, 'utf8'))
+      check(
+        `the desktop file's StartupWMClass is ${pkg.desktopName}`,
+        entry.StartupWMClass === pkg.desktopName,
+        `StartupWMClass=${entry.StartupWMClass}`
+      )
+      check(
+        'the desktop file presents itself as Mercury',
+        entry.Name === 'Mercury',
+        `Name=${entry.Name}`
+      )
+      check(
+        'the desktop file launches the mercury-browser executable',
+        /\bmercury-browser\b/.test(entry.Exec || ''),
+        `Exec=${entry.Exec}`
+      )
+      check(
+        'the desktop file declares the mercury:// scheme handler',
+        (entry.MimeType || '').split(';').includes('x-scheme-handler/mercury'),
+        `MimeType=${entry.MimeType}`
+      )
+      check(
+        'the desktop file carries no Min branding',
+        !/\bMin\b/.test(fs.readFileSync(desktopPath, 'utf8')),
+        'the whole word Min appears in the desktop entry'
+      )
+
+      // Icon= is the icon theme name, which only resolves if a file by that name
+      // was installed. Asserting the file exists catches Icon= drifting away
+      // from what FpmTarget installs, which is named after the executable.
+      const icons = path.join(tmp, 'data', 'usr', 'share', 'icons', 'hicolor')
+      const iconFiles = fs.existsSync(icons)
+        ? fs.readdirSync(icons).flatMap(size =>
+          path.join(icons, size, 'apps')).filter(dir => fs.existsSync(dir)).flatMap(dir =>
+          fs.readdirSync(dir))
+        : []
+      check(
+        `the Icon= name resolves to an installed icon (Icon=${entry.Icon})`,
+        iconFiles.some(name => name === `${entry.Icon}.png` || name === `${entry.Icon}.svg`),
+        `installed icons: ${iconFiles.length ? iconFiles.join(', ') : 'none'}`
+      )
+    }
+
+    // ---- the binary itself
+    const binary = path.join(tmp, 'data', 'opt', pkg.productName, 'mercury-browser')
+    const binaryExists = fs.existsSync(binary)
+    check(
+      `opt/${pkg.productName}/mercury-browser exists`,
+      binaryExists,
+      `${binary} is missing`
+    )
+    if (binaryExists) {
+      check(
+        'the executable is marked executable',
+        (fs.statSync(binary).mode & 0o111) !== 0,
+        `mode ${(fs.statSync(binary).mode & 0o777).toString(8)}`
+      )
+    }
+  } catch (e) {
+    console.log(`  FAIL  extraction threw: ${e.message}`)
+    failures++
+  }
+
+  if (failures === 0 && !opts.keep) fs.rmSync(tmp, { recursive: true, force: true })
+  if (failures > 0) console.log(`\nextraction kept at ${tmp}`)
+  console.log(`\n${passes} checks passed, ${failures} failed`)
+  return failures === 0 ? 0 : 1
+}
+
+process.exitCode = main()
