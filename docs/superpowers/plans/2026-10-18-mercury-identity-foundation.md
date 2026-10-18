@@ -126,7 +126,7 @@ Licence: Apache-2.0"
   - `sourceFiles(): string[]` — absolute paths of every `.js`, `.html`, `.css` under `js/`, `main/`, `pages/`, `reader/` plus the root `index.html`, excluding `node_modules`, `dist`, `localization/languages`, and `ext/`
   - `stripComments(text: string, ext: string): string` — `decomment` for `.js`, `/* */` and `<!-- -->` removal for `.css`/`.html`
 - Produces: `test/helpers/renderer.js` exporting `loadRendererModule(rel: string): any` — installs the `window`, `ipc` and `localStorage` globals the renderer modules read at load time, sets `NODE_PATH` to `<ROOT>/js` so browserify-style bare specifiers like `util/searchEngine.js` resolve, restores both on exit.
-- Produces: npm script `test:unit` = `node --test test/`
+- Produces: npm script `test:unit` = `node --test "test/*.test.js"` — a quoted glob, not a directory argument. Measured on Node 22.23.3 (the version `.nvmrc` and CI pin): `node --test test/` treats `test/` as a module path and fails the entire run with `MODULE_NOT_FOUND`, while a bare `node --test` executes **every** file under `test/`, including `test/helpers/` and — once Task 12 adds them — the Playwright specs and proxy helper in `test/e2e/`. The quoted glob is the only form measured to work on both Node 22 and Node 26 while restricting the run to the unit tests.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -188,7 +188,17 @@ If `~/.cache/electron` appears, `ELECTRON_CACHE` was not picked up: re-source `s
 
 - [ ] **Step 4: Add the script and run the test — it must fail**
 
-Add to `package.json` `scripts`: `"test:unit": "node --test test/"`.
+Add to `package.json` `scripts`: `"test:unit": "node --test \"test/*.test.js\""`.
+
+The form is deliberate. Against a fixture of two `*.test.js` files plus `test/helpers/repo.js`, `test/e2e/launch.spec.js` and `test/e2e/proxy.js`, measured on both Node 22.23.3 and Node 26.11.1:
+
+| command | Node 22 | Node 26 | runs `test/e2e/` or `test/helpers/` |
+| --- | --- | --- | --- |
+| `node --test test/` | fails: `MODULE_NOT_FOUND` | works | no |
+| `node --test "test/*.test.js"` | works | works | **no** |
+| `node --test` | works | works | **yes — every file** |
+
+A directory argument is *not* portable across the two versions, and the version this repo pins (22) is the one that breaks. A bare `node --test` is version-portable but would run the Playwright specs under the node test runner once Task 12 lands. Quote the glob so Node expands it rather than the shell, as the Node docs recommend.
 
 Run: `npm run test:unit`
 Expected: FAIL — `name` is `'min'`, and `productName`/`desktopName` are `'Min'`/absent.
@@ -214,6 +224,8 @@ In `main/main.js`, the `-v`/`--version` branch prints `'Min: ' + app.getVersion(
 - [ ] **Step 7: Pin the toolchain**
 
 Write `.nvmrc` containing `22`. `node --test` requires Node ≥ 18; the current `.nvmrc` says `15.7.0`, which cannot run the test runner, and Min's own CI already uses Node 25. The system Node here is 26.11.1, which runs the tests unchanged — `.nvmrc` pins CI and any nvm user, not this machine.
+
+This local/CI divergence is not academic: it is exactly how the `test:unit` form broke. The plan originally read `node --test test/`, which passes here on Node 26 and fails outright on the pinned Node 22. Every test command in this plan was therefore re-measured on Node 22.23.3 before being written down; a Node 22 binary sits at `/tmp/opencode/node22/bin/node` for re-checking. When a step's output is version-sensitive, run it through that binary as well.
 
 - [ ] **Step 8: Run the tests — they must pass**
 
