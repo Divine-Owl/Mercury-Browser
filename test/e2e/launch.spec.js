@@ -31,6 +31,7 @@ const {
   SETTINGS_PAGE,
   SHORT_SETTINGS_URL,
   NEWTAB_PAGE,
+  READER_PAGE,
   launchApp,
   until,
   stat,
@@ -40,7 +41,9 @@ const {
   webContentsList,
   ensureSettingsPage,
   openNewTabPage,
+  enterUrl,
   settingsPageFacts,
+  readerPageFacts,
   clickShowDividerCheckbox,
   readSettingsFile,
   versionBanner
@@ -137,6 +140,45 @@ test.describe('a running Mercury', () => {
     })
     expect(healthy).not.toBeNull()
     expect(healthy.crashed).toBe(false)
+  })
+
+  test('mercury:// reader view renders, built bundle and all', async () => {
+    // SC5 names the reader beside settings and the new tab page, and it is the one
+    // mercury:// page whose chrome is generated: reader/index.html loads
+    // dist/localization.build.js and the labels in it are filled at load time, so a
+    // non-empty label proves the build's own bundle was served over the scheme.
+    //
+    // The article it is handed is an internal page rather than a real site, which
+    // keeps this off the network: the reader fetches it through the same scheme,
+    // Readability finds no article in an empty document, and the reader says so -
+    // inside the sandboxed frame it renders article bodies in (reader/reader.js
+    // assigns that frame's srcdoc). So the assertion reaches into that frame, which
+    // exercises the whole path rather than the static shell: fetch the URL it was
+    // given, parse it, render the result.
+    const readerUrl = `${READER_PAGE}?url=${encodeURIComponent(NEWTAB_PAGE)}`
+    await enterUrl(ctx.ui, readerUrl)
+
+    const facts = await until(async () => {
+      const f = await readerPageFacts(ctx.app, readerUrl)
+      return f.found && f.framePresent ? f : null
+    }, { what: 'the reader view to load its internal article and render it', timeout: 30000 })
+
+    expect(facts.url).toBe(readerUrl)
+    expect(facts.crashed).toBe(false)
+    expect(facts.hasBackLink).toBe(true)
+
+    // The localization bundle, over the scheme: both of these attributes are filled
+    // from dist/localization.build.js, not from the page's own HTML.
+    expect(facts.backLinkText.length).toBeGreaterThan(0)
+    expect(facts.settingsLabel.length).toBeGreaterThan(0)
+
+    // and the article pipeline ran: the empty internal page parses to no article
+    await until(async () => (await readerPageFacts(ctx.app, readerUrl)).frameText.length > 0, {
+      what: 'the reader frame to render',
+      timeout: 15000
+    })
+    const rendered = await readerPageFacts(ctx.app, readerUrl)
+    expect(rendered.frameText).toMatch(/No article found/)
   })
 
   test('mercury:// is registered as a standard, secure scheme', async () => {

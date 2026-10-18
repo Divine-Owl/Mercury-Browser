@@ -265,7 +265,7 @@
     "downloadStateCompleted": "Valmis",
     "downloadStateFailed": "Epäonnistunut",
     /* Update Notifications */
-    "updateNotificationTitle": "Uusi versio Ministä saatavilla",
+    "updateNotificationTitle": "Uusi versio saatavilla",
     /* Autofill settings */
     "settingsPasswordAutoFillHeadline": "Salasanojen automaattinen täyttö",
     "settingsSelectPasswordManager": "Valitse yksi tuetuista salasanojen hallintasovelluksista:",

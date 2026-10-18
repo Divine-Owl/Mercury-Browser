@@ -265,7 +265,7 @@
     "downloadStateCompleted": "Dovršeno",
     "downloadStateFailed": "Neuspješno",
     /* Update Notifications */
-    "updateNotificationTitle": "Dostupna je nova verzija Mina",
+    "updateNotificationTitle": "Dostupna je nova verzija.",
     /* Autofill settings */
     "settingsPasswordAutoFillHeadline": "Automatsko popunjavanje lozinke",
     "settingsSelectPasswordManager": "Odaberite jedan od podržanih upravitelja lozinki:",
@@ -284,7 +284,7 @@
     "passwordManagerSetupDragBox": "Povucite alat ovdje",
     "passwordManagerSetupInstalling": "Instaliranje...",
     "passwordManagerBitwardenSignIn": "Kako biste povezali svoj Bitwarden račun, idite na vault.bitwarden.com/#/settings/account, pomaknite se do dna i odaberite \"View API Key\". Zatim zalijepite vrijednosti u donja polja.",
-    "passwordManagerSetupSignIn": "Prijavite se u svoj upravitelj lozinki kako biste počeli koristiti automatsko popunjavanje. Vaše vjerodajnice neće biti pohranjene nigdje u Minu.",
+    "passwordManagerSetupSignIn": "Prijavite se u svoj upravitelj lozinki kako biste počeli koristiti automatsko popunjavanje. Vaše vjerodajnice neće biti pohranjene nigdje.",
     "disableAutofill": "Onemogući automatsko popunjavanje",
     "passwordManagerSetupUnlockError": "Otključavanje spremišta lozinki nije uspjelo: ",
     "passwordManagerSetupRetry": "Provjerite da koristite ispravnu datoteku i unosite ispravnu lozinku. Možete pokušati ponovnim povlačenjem alata ovdje.",

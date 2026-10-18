@@ -43,6 +43,7 @@ const SETTINGS_PAGE = 'mercury://app/pages/settings/index.html'
 const SHORT_SETTINGS_URL = 'mercury://settings'
 const NEWTAB_PAGE = 'mercury://app/pages/newtab/index.html'
 const SHORT_NEWTAB_URL = 'mercury://newtab'
+const READER_PAGE = 'mercury://app/reader/index.html'
 
 /* The flags every Electron launch here needs, in one place so the two launch paths
    cannot drift.
@@ -255,6 +256,31 @@ const settingsPageFacts = app => inMain(app, async ({ webContents }) => {
   }
 })
 
+/* The reader view, read the way the settings page is. It is the mercury:// page
+   whose chrome is a build artifact rather than static HTML: reader/index.html
+   loads dist/localization.build.js, which fills the elements carrying
+   [data-string] and [data-label] as it loads. A non-empty label is therefore
+   evidence that the generated bundle was served over the scheme - and that the
+   scheme served it to a page which was itself loaded through the scheme. */
+const readerPageFacts = (app, url) => inMain(app, async ({ webContents }, wanted) => {
+  const wc = webContents.getAllWebContents().find(w => w.getURL() === wanted)
+  if (!wc) return { found: false }
+  return {
+    found: true,
+    url: wc.getURL(),
+    crashed: wc.isCrashed(),
+    hasBackLink: await wc.executeJavaScript('!!document.getElementById("backtoarticle")'),
+    backLinkText: await wc.executeJavaScript('((document.querySelector("#backtoarticle-link span") || {}).textContent || "").trim()'),
+    settingsLabel: await wc.executeJavaScript('(function () { var b = document.getElementById("settings-button"); return b ? (b.getAttribute("aria-label") || "") : "" })()'),
+    text: await wc.executeJavaScript('document.body.innerText'),
+    // The article body is rendered into a sandboxed same-origin iframe
+    // (reader/reader.js sets rframe.srcdoc), so `.reader-main` is in that frame's
+    // document, not the page's. allow-same-origin is what lets this read it.
+    frameText: await wc.executeJavaScript('(function () { var f = document.querySelector(".reader-frame"); var d = f && f.contentDocument; return d && d.body ? d.body.innerText.trim() : "" })()'),
+    framePresent: await wc.executeJavaScript('!!document.querySelector(".reader-frame")')
+  }
+}, url)
+
 /* Clicks the "divider between tabs" checkbox through the page's own change
    listener. The value only reaches disk if the whole chain survives: the page's
    listener, settingsContent's postMessage, settingsPreload's origin guard, and the
@@ -297,6 +323,7 @@ module.exports = {
   SHORT_SETTINGS_URL,
   NEWTAB_PAGE,
   SHORT_NEWTAB_URL,
+  READER_PAGE,
   MIN_SENTINEL,
   sleep,
   until,
@@ -313,6 +340,7 @@ module.exports = {
   openNewTabPage,
   ensureSettingsPage,
   settingsPageFacts,
+  readerPageFacts,
   clickShowDividerCheckbox,
   readSettingsFile,
   versionBanner,
