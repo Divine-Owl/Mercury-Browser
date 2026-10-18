@@ -44,6 +44,21 @@ const SHORT_SETTINGS_URL = 'mercury://settings'
 const NEWTAB_PAGE = 'mercury://app/pages/newtab/index.html'
 const SHORT_NEWTAB_URL = 'mercury://newtab'
 
+/* The flags every Electron launch here needs, in one place so the two launch paths
+   cannot drift.
+
+   --no-sandbox: GitHub's runners do not have the SUID sandbox helper configured
+   (`chrome-sandbox` is neither root-owned nor mode 4755), and Chromium aborts with
+   "The SUID sandbox helper binary was found, but is not configured correctly"
+   before any app code runs. Playwright's `_electron.launch` adds this itself, which
+   is why the version-banner check below - the one place that spawns the binary
+   directly - was the only test that failed on CI and passed locally.
+
+   --disable-gpu and --disable-dev-shm-usage: no GPU on a runner, and containers
+   have a small /dev/shm.
+*/
+const CHROMIUM_FLAGS = ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage']
+
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 async function until (check, { timeout = 30000, interval = 200, what = 'condition' } = {}) {
@@ -99,7 +114,7 @@ async function launchApp (options = {}) {
     ? { home: options.home, config: path.join(options.home, '.config'), minDir: path.join(options.home, '.config', 'Min') }
     : makeHome()
 
-  const args = ['.', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage']
+  const args = ['.', ...CHROMIUM_FLAGS]
 
   // XDG_CONFIG_HOME takes precedence over HOME for app.getPath('appData'), so
   // both have to point into the throwaway home - otherwise the isolation
@@ -268,7 +283,7 @@ const electronPath = () => require('electron')
 // `electron . -v` prints the version banner and exits, per main/main.js.
 function versionBanner () {
   return new Promise((resolve, reject) => {
-    execFile(electronPath(), ['.', '-v'], { cwd: ROOT, timeout: 30000 }, (error, stdout, stderr) => {
+    execFile(electronPath(), ['.', '-v', ...CHROMIUM_FLAGS], { cwd: ROOT, timeout: 30000 }, (error, stdout, stderr) => {
       if (error) return reject(new Error(`${error.message}\n${stderr}`))
       resolve(stdout.trim())
     })
