@@ -35,6 +35,7 @@ const GOOD_CONTROL = [
   'Architecture: amd64',
   'Maintainer: Mercury Developers',
   'Description: Fast, minimal, privacy-focused web browser',
+  `Homepage: ${pkg.homepage}`,
   ''
 ].join('\n')
 
@@ -83,6 +84,16 @@ function buildDeb (opts = {}) {
     fs.chmodSync(binary, opts.binaryMode === undefined ? 0o755 : opts.binaryMode)
   }
 
+  if (opts.devFiles) {
+    // The shape createPackage.js shipped before `!test/` was added: the specs,
+    // their helpers and the config, inside resources/app.
+    const appDir = path.join(installDir, 'resources', 'app')
+    const specs = path.join(appDir, 'test/e2e')
+    fs.mkdirSync(specs, { recursive: true })
+    fs.writeFileSync(path.join(specs, 'launch.spec.js'), '// a spec\n')
+    fs.writeFileSync(path.join(appDir, 'playwright.config.js'), 'module.exports = {}\n')
+  }
+
   if (!opts.skipLicenses) {
     const appDir = path.join(installDir, 'resources', 'app')
     fs.mkdirSync(appDir, { recursive: true })
@@ -125,6 +136,7 @@ test('a correctly packaged .deb passes every check', () => {
   assert.match(output, /ok\s+opt\/Mercury\/mercury-browser exists/)
   assert.match(output, /ok\s+the app carries Min's Apache-2\.0 licence/)
   assert.match(output, /ok\s+the app carries the fork's NOTICE, naming upstream and version/)
+  assert.match(output, /ok\s+the app carries no test suite or development config/)
   assert.match(output, /0 failed/)
 })
 
@@ -224,6 +236,27 @@ test('it catches a NOTICE that does not name the upstream it forked', () => {
   assert.strictEqual(status, 1, output)
   assert.match(output, /FAIL\s+the app carries the fork's NOTICE, naming upstream and version/)
   assert.match(output, /NOTICE is present but does not name the upstream project and version/)
+})
+
+test('it catches a control file still advertising Min as the homepage', () => {
+  // electron-builder derives this from package.json. Left as imported it was
+  // Min's repository, so `apt show mercury-browser` sent users to the project this
+  // fork exists to stop being - in an artifact that calls itself Mercury.
+  const control = GOOD_CONTROL.replace(
+    `Homepage: ${pkg.homepage}`,
+    'Homepage: https://github.com/minbrowser/min'
+  )
+  const { status, output } = verify(buildDeb({ control }))
+  assert.strictEqual(status, 1, output)
+  assert.match(output, /FAIL\s+the control file publishes the fork's homepage/)
+  assert.match(output, /observed: Homepage: https:\/\/github\.com\/minbrowser\/min/)
+})
+
+test('it catches a package that ships the test suite', () => {
+  const { status, output } = verify(buildDeb({ devFiles: true }))
+  assert.strictEqual(status, 1, output)
+  assert.match(output, /FAIL\s+the app carries no test suite or development config/)
+  assert.match(output, /shipped: test, playwright\.config\.js/)
 })
 
 test('it reports a clear error rather than a stack trace when there is nothing to verify', () => {

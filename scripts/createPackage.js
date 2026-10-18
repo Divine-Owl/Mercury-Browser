@@ -98,6 +98,14 @@ module.exports = function (platform, extraOptions) {
       // localization files are compiled and copied to dist
       '!localization/',
       '!scripts/',
+      // The test suite and its config. Never excluded before, so every package
+      // carried resources/app/test/ - 324 KB of specs, helpers and a key fixture -
+      // plus playwright.config.js. electron-builder's own excludedNames happens to
+      // cover .github/, which is the sort of accident that stops being true on a
+      // major bump, so it is named here too. verifyPackage asserts all three.
+      '!test/',
+      '!playwright.config.js',
+      '!.github/',
       // These are bundled in.
       '!**/main',
       // parts of modules that aren"t needed

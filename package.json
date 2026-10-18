@@ -91,6 +91,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/minbrowser/min.git"
-  }
+    "url": "https://github.com/Divine-Owl/Mercury-Browser.git"
+  },
+  "homepage": "https://github.com/Divine-Owl/Mercury-Browser"
 }

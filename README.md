@@ -18,7 +18,9 @@ asserts that no request reaches a `minbrowser` host.
 
 Version 0.1.0, Linux only, and honest about it:
 
-- Packages: `.deb`, `.rpm` and AppImage. All three are built and verified in CI.
+- Packages: `.deb`, `.rpm` and AppImage. The `.deb` is built and verified on every
+  CI run; `.rpm` and AppImage are built by a manual workflow and are **not yet
+  verified**.
 - **No update notification.** deb/rpm users get updates from their package
   manager; AppImage users get none, including for security releases. This is a
   known gap for 0.1 and is revisited at the first release.
@@ -53,10 +55,17 @@ npm run buildAppImage   # dist/app/
 npm run verifyPackage   # unpack the .deb and check its identity, app id and executable
 ```
 
-Packaging is exercised only in CI. `verifyPackage` checks the unpacked package for
-`org.mercury.Browser.desktop`, `StartupWMClass=org.mercury.Browser` and a
-`mercury-browser` executable — the three things that decide whether a desktop
-environment groups the window, shows the right icon, and finds the binary.
+Packaging happens on CI rather than on your machine: `ci.yml` builds the `.deb` and
+runs `verifyPackage` against it on every push. `buildRedhat` and `buildAppImage`
+are wired into `.github/workflows/build-packages.yml`, which runs on demand, and
+neither format is verified yet.
+
+`verifyPackage` unpacks the artifact with `ar` and `tar` (so it needs no
+`dpkg-deb`) and checks the things that decide whether an install behaves: the
+desktop file's exact name and `StartupWMClass`, the executable it launches, the
+registered scheme handler, the installed icon, the package homepage, that the app
+carries its `LICENSE.txt` and `NOTICE`, and that the test suite and the local build
+caches did not come along.
 
 ## Testing
 

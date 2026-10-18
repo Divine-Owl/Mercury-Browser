@@ -1,14 +1,15 @@
 ---
 name: Bug report
-about: Report unexpected behavior in Min
+about: Report unexpected behavior in Mercury
 title: ""
 labels: bug
 assignees: ""
 ---
 
-- **Min Version:**
+- **Mercury version:** <!-- `mercury-browser --version`, or About in the app menu -->
 - **Operating system:**
-<!-- e.g. "Windows 10", "macOS 10.14" -->
+<!-- e.g. "Ubuntu 24.04", "Fedora 41" -->
+- **Installed from:** <!-- .deb, .rpm or AppImage -->
 
 ## Expected Behavior
 

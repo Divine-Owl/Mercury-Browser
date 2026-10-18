@@ -189,6 +189,17 @@ function main () {
         (field('Maintainer') || '').startsWith('Mercury Developers'),
         `Maintainer: ${field('Maintainer')}`
       )
+      // electron-builder derives this field from package.json's homepage, falling
+      // back to the GitHub repository URL in it. Left alone it was Min's repository:
+      // the artifact named Mercury, shipped by Mercury, telling every package
+      // manager to send users to minbrowser/min - and nothing else in the pipeline
+      // reads the field, so it would have shipped silently for as long as nobody
+      // ran `apt show mercury-browser`.
+      check(
+        `the control file publishes the fork's homepage (${pkg.homepage})`,
+        field('Homepage') === pkg.homepage,
+        `Homepage: ${field('Homepage')}`
+      )
     }
 
     // ---- the desktop entry: this is the reason the script exists
@@ -273,6 +284,21 @@ function main () {
       'the package carries no local build state (.cache/.venv)',
       buildState.length === 0,
       `${buildState.length} offender(s): ${buildState.slice(0, 5).join(', ')}`
+    )
+
+    // ---- development files inside the shipped app
+    // `test/` was packaged in every artifact: createPackage.js's files list
+    // excludes `.cache`, `.venv`, `scripts/`, `localization/` and `main/`, and
+    // simply never mentioned the test suite - 324 KB of specs, helpers and a
+    // 9,356-line key fixture shipped in resources/app, along with
+    // playwright.config.js. It is not a correctness bug, which is exactly why
+    // nothing caught it: the package works, it is just carrying the test suite.
+    const devFiles = ['test', 'playwright.config.js', '.github']
+      .filter(name => fs.existsSync(path.join(tmp, 'data', 'opt', pkg.productName, 'resources', 'app', name)))
+    check(
+      'the app carries no test suite or development config',
+      devFiles.length === 0,
+      `shipped: ${devFiles.join(', ')}`
     )
 
     // ---- attribution, which has to travel with the artifact
