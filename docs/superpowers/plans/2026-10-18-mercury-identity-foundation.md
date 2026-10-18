@@ -462,8 +462,8 @@ git commit -m "feat: remove update feed, first-run tour and dead survey; repoint
 ### Task 5: Remove page translation
 
 **Files:**
-- Delete: `pages/translateService/` (whole directory)
-- Modify: `js/webviewMenu.js`, `main/main.js`, `package.json`, `test/no-min-infrastructure.test.js`
+- Delete: `pages/translateService/` (whole directory), `js/pageTranslations.js`, `js/preload/translate.js`
+- Modify: `js/webviewMenu.js`, `main/main.js`, `package.json`, `scripts/buildPreload.js`, `test/no-min-infrastructure.test.js`
 
 **Interfaces:**
 - Consumes: `test/no-min-infrastructure.test.js` from Task 4
@@ -491,7 +491,7 @@ Expected: FAIL on `pages/translateService/translateService.js` naming `services.
 - `git rm -r pages/translateService`
 - In `js/webviewMenu.js`, remove the context-menu entry labelled `l('translatePage')` (and its `click`/`visible` handler).
 - In `main/main.js`, remove the `translatePage` and `translatePreload` constants and the branch that creates and loads `translateWindow`.
-- Run `grep -rn "pageTranslations\|translateWindow\|translatePreload\|bergamot" js/ main/ pages/` and delete whatever is left serving only translation — including `js/pageTranslations.js` if nothing else requires it.
+- Run `grep -rniE "pageTranslations|translateWindow|translatePreload|bergamot|page-translation" js/ main/ pages/` and delete whatever is left serving only translation — including `js/pageTranslations.js` if nothing else requires it. **The hyphenated `page-translation` in that pattern is load-bearing.** `js/preload/translate.js` serves only translation and names none of the other four terms: it reaches Min's host through `ipc.postMessage('page-translation-session-create', ...)`, and it is concatenated into `dist/preload.js`, so it loads into every page while waiting on an `ipc.on('translate-page')` that only the deleted context-menu item ever sent. It must be deleted and dropped from the module list in `scripts/buildPreload.js`, then the preload rebuilt to prove it still builds (`mkdir -p dist && node scripts/buildPreload.js` — `dist/` does not exist until some build step creates it).
 - Remove `@browsermt/bergamot-translator` from `package.json` `dependencies`.
 
 Locale keys (`translatePage` and friends) stay: keys are frozen.
