@@ -20,10 +20,13 @@ a fork that has removed its telemetry.
 
 ## Why not merge
 
-The remote is `fetch`-only by design.
+The remote is `fetch`-only, and that is enforced rather than remembered: its push
+URL is set to `DISABLED`, so `git push upstream` fails instead of publishing to Min.
+A new checkout should do the same:
 
 ```bash
-git remote -v                          # upstream is present and read-only by convention
+git remote -v                          # upstream: fetch, and DISABLED for push
+git remote set-url --push upstream DISABLED
 git fetch upstream --tags              # refresh refs; never merged
 git ls-remote --tags upstream | tail -20   # what has been released
 ```

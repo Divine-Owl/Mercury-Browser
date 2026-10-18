@@ -67,14 +67,24 @@ jobs:
       # the npm cache is the difference between a two-minute job and a ten-minute
       # one. ~/.cache/electron is electron's default location in CI, where
       # scripts/devEnv.sh does not run.
-      - name: Cache the npm and Electron download caches
+      #
+      # Two steps with two keys, not one step with two paths: one key covering both
+      # paths stored only .cache/npm, because the `test` job saves that same key
+      # first - a hit here restored npm's cache and skipped the save, so
+      # ~/.cache/electron was never persisted and every run re-downloaded it.
+      - name: Cache the npm download cache
         uses: actions/cache@v4
         with:
-          path: |
-            .cache/npm
-            ~/.cache/electron
+          path: .cache/npm
           key: npm-${{ runner.os }}-${{ hashFiles('package.json') }}
           restore-keys: npm-${{ runner.os }}-
+
+      - name: Cache the Electron download cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('package.json') }}
+          restore-keys: electron-${{ runner.os }}-
 
       - name: Install dependencies
         run: npm install --omit=optional
@@ -123,14 +133,21 @@ jobs:
         with:
           node-version: 22
 
-      - name: Cache the npm and Electron download caches
+      # Two keys, as in the package job above: one key over both paths meant the npm
+      # half hit and the Electron half was never saved.
+      - name: Cache the npm download cache
         uses: actions/cache@v4
         with:
-          path: |
-            .cache/npm
-            ~/.cache/electron
+          path: .cache/npm
           key: npm-${{ runner.os }}-${{ hashFiles('package.json') }}
           restore-keys: npm-${{ runner.os }}-
+
+      - name: Cache the Electron download cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('package.json') }}
+          restore-keys: electron-${{ runner.os }}-
 
       - name: Install dependencies
         run: npm install --omit=optional

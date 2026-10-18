@@ -28,6 +28,15 @@ const GLOBS = ['js/**/*.js', 'main/*.js']
 function runStandard () {
   const bin = path.join(ROOT, 'node_modules/.bin/standard')
   const args = [bin, ...GLOBS]
+  // Without the binary this gate passes vacuously: execFileSync throws ENOENT, the
+  // catch below returns its empty output, nothing matches the error pattern, every
+  // file counts zero and the script announces "no new errors (0 total)". A missing
+  // linter must not read as a clean tree, on CI or anywhere else.
+  if (!fs.existsSync(bin)) {
+    console.error(`lintBaseline: ${path.relative(ROOT, bin)} is missing - run npm install first`)
+    console.error('  without the linter this check can see nothing, so it must not pass')
+    process.exit(1)
+  }
   try {
     return execFileSync(args[0], args.slice(1), {
       cwd: ROOT,
@@ -78,6 +87,13 @@ for (const [file, now] of Object.entries(counts)) {
 }
 
 const sum = Object.values(baseline).reduce((a, b) => a + b, 0)
+// The other half of the same failure: the linter runs but reports nothing, which
+// no version of this tree has ever been true of.
+if (total === 0 && sum > 0) {
+  console.error('lint: standard found nothing at all, which cannot be right for this tree')
+  console.error(`  the baseline records ${sum} errors; treat this as the linter failing to run`)
+  process.exit(1)
+}
 if (grew.length > 0) {
   console.error('lint: new errors introduced')
   for (const { file, was, now } of grew) {
