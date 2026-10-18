@@ -664,6 +664,13 @@ test('the product name is substituted in a non-Latin locale', () => {
   const ja = parseLocale(localeFiles().find(f => f.endsWith('/ja.json')))
   assert.match(ja.translations.serverNotFoundSubtitle, /Mercury/)
 })
+
+test('no locale value links to a Min host', () => {
+  for (const file of localeFiles()) {
+    const { identifier, translations } = parseLocale(file)
+    assert.doesNotMatch(JSON.stringify(translations), /minbrowser/, identifier)
+  }
+})
 ```
 
 `\b` here is ASCII-only, which is exactly what makes it correct: `Minは` and `Minの` have a boundary after `Min`, while `timeRangeMinutes` and `appMenuMinimize` do not — those are keys, and the key test above would catch their corruption anyway.
@@ -677,7 +684,19 @@ Expected: FAIL on the "whole word Min" test, and on the `ja` substitution test.
 
 Replace every regex match of `\bMin\b` with `Mercury` across the 35 files in `localization/languages/`. en-US itself hardcodes the word in nine places (`serverNotFoundSubtitle`, `sslErrorMessage`, `genericConnectionFail`, `sslTimeErrorMessage`, `multipleInstancesErrorMessage`, the `settingsBlockedRequestCount` `unsafeHTML`, `settingsStartupOptions`, `updateNotificationTitle`, `passwordManagerSetupSignIn`), so this is a literal swap, not a placeholder substitution.
 
-Do **not** touch `%n`: it is substituted at the call site — `l('appMenuQuit').replace('%n', app.name)` — so the 205 `%n` sites already follow the product name and need no edit.
+Do **not** touch `%n`: it is substituted at the call site — `l('appMenuQuit').replace('%n', app.name)` — so the 275 `%n` occurrences already follow the product name and need no edit. Confirm the count is still 275 afterwards: `grep -rho '%n' localization/languages/ | wc -l`.
+
+**Also repoint the Min URLs, which renaming the word `Min` cannot reach.** Three keys embed a user-clickable `<a href>` into Min's own GitHub, and a URL is not a word:
+
+| key | what it is | locales |
+| --- | --- | --- |
+| `sessionRestoreErrorLinkInfo.unsafeHTML` | "report this bug here", reached from the session-restore error page | 35 |
+| `settingsUserscriptsExplanation.unsafeHTML` | Min's userscripts wiki | 34 |
+| `settingsUsageStatisticsToggle.unsafeHTML` | Min's statistics doc | 29 |
+
+Without this, every locale offers to file the user's bug against Min. Repoint them to `https://github.com/Divine-Owl/Mercury-Browser`, and the two documentation links to `https://github.com/Divine-Owl/Mercury-Browser#readme` — Task 4's precedent is to drop Min's wiki link rather than ship one documenting a different product. **Replace longest-pattern-first**: the bare repository URL is a prefix of the other two, so replacing it first leaves `/wiki/userscripts` dangling. Nothing else covers these — `test/no-min-infrastructure.test.js` scans `js/`, `main/`, `pages/`, `reader/` and the root `index.html`, never `localization/`.
+
+A textual substitution is correct here and must stay ASCII: a Unicode-aware `\b` does not fire between `Min` and `は`, so `ja`, `ko`, `zh-CN` and `zh-TW` would be skipped in silence. `en-US` has 9 of the 268 replacements and all four CJK locales have 8 or 9, so a Unicode `\b` loses about a third of the work with no error.
 
 - [ ] **Step 6: Run the tests — they must pass**
 
