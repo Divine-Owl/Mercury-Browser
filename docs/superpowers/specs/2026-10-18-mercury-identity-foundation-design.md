@@ -125,10 +125,17 @@ its directory is `~/.config/Min`, not `~/.config/min`.
 **Version starts at `0.1.0`** so any future update check cannot compare Mercury against Min's version
 line.
 
-**Verified:** `setDesktopName` and `desktopName` are both present in the Electron 43.7.9 binary,
-so the API exists in the version being bundled. What remains to confirm at first run is that
-Electron 43 honours the `package.json` `desktopName` field as the current documentation states; if
-it does not, the fallback is an explicit `app.setDesktopName()` call before `ready` (see §5, R4).
+**Resolved — the mechanism is known.** `app.setDesktopName(name)`, and the equivalent
+`desktopName` field in `package.json`, sets the XDG application ID (`app_id`) on Wayland and
+`WM_CLASS` on X11, and *must match the base filename of the app's installed `.desktop` file*.
+`setDesktopName` is present in the Electron 43.7.9 binary, so the API exists in the version being
+bundled, and the `package.json` field is documented as equivalent.
+
+electron-builder installs the `.desktop` file as `org.mercury.Browser.desktop` (and writes a matching
+`StartupWMClass`) only when **both** `desktopName` is set in `package.json` **and**
+`linux.syncDesktopName` is true — and only from **electron-builder 26.17.0**. Min pins `^24.13.3`,
+which has `getDesktopFileName` but reads `desktopName` nowhere. Section 4.5 therefore bumps
+electron-builder. No post-processing of the package is required.
 
 ### 4.2 Infrastructure severance
 
@@ -136,10 +143,11 @@ Complete list of Min-owned endpoints found in the artifact, with the action for 
 
 | Surface | Location | Current value | Action |
 | --- | --- | --- | --- |
-| Usage statistics | `js/statistics.js` | `POST https://services.minbrowser.org/stats/v1/collect` | **Delete** the upload; delete the `collectUsageStats` setting and its settings-page toggle |
+| Usage statistics | `js/statistics.js` | `POST https://services.minbrowser.org/stats/v1/collect` | **Delete the module** and all 8 call sites (`browserUI`, `default`, `newTabPage`, `pageTranslations`, `passwordManager`, `sessionRestore`, `userscripts`); delete the `collectUsageStats` setting and its settings-page toggle. The blocked-request counter is unaffected — it reads `#content-blocking-blocked-requests`, not `statistics.js` |
 | Update feed | `js/searchbar/updateNotifications.js` | `UPDATE_URL = 'https://minbrowser.org/min/updates/latestVersion.json'` | **Disable** (decision 7) |
-| Survey | `js/sessionRestore.js` | `https://minbrowser.org/survey/survey15.json` | **Delete** |
-| Tour | `js/sessionRestore.js` | `https://minbrowser.github.io/min/tour` | **Delete** |
+| Survey | `js/sessionRestore.js` | `https://minbrowser.org/survey/survey15.json` | **Delete** — already inside a commented-out block, so this is dead-code removal |
+| Tour | `js/sessionRestore.js`, main process | `https://minbrowser.github.io/min/tour` (first run, **live**) and `.../tour/` (Help menu) | **Delete** — first run opens a new tab instead |
+| Page translation models | `pages/translateService/translateService.js` | `https://services.minbrowser.org/bergamot-models-v1/registry.json` and `.../bergamot-models-v1` | **Disable the feature** in v0.1 — remove the Translate context-menu entry (`js/webviewMenu.js`) so the service is unreachable. The one remaining *live*, user-initiated Min-hosted dependency; see §7 |
 | Crash reporting | main process (`main.build.js:1044`; upstream `main/main.js`) | `crashReporter.start({ submitURL: 'https://minbrowser.org/', uploadToServer: false, compress: true })` | Repoint `submitURL`; crashes are not uploaded today, so this is housekeeping, not a leak |
 | Support and help links | 32 references across `js/`, plus localization `unsafeHTML` | `github.com/minbrowser/min` (issues, wiki, `docs/statistics.md`) | Repoint to the Mercury repository or remove |
 | Search / instant answers | `js/` | `duckduckgo.com`, `ac.duckduckgo.com` | **Keep** — these are features, not vendor infrastructure |
@@ -187,7 +195,7 @@ Measured against the shipped bundles:
 
 | Pattern | Count | Meaning |
 | --- | --- | --- |
-| `%n` — application-name placeholder | **205** | Strings such as "About %n", "Quit %n". **Free**: all locales update automatically |
+| `%n` — application-name placeholder | **205** | Strings such as "About %n", "Quit %n". **Free**: substituted at the *call site* — `l('appMenuQuit').replace('%n', app.name)` — so the rename needs no edit at these sites |
 | `%p` — password-manager placeholder | 117 | Unrelated to this sub-project |
 | Literal `Min` in `dist/localization.build.js` | **258** | Hardcoded prose — about 7 per locale on average, up to 10 where a locale is fully translated |
 | Literal `Min` in `main.build.js` | 295 | Inlined languages object plus main-process strings |
@@ -219,12 +227,21 @@ in the built bundles must be **0**.
   `43.4.1` while the installed distro runtime is `43.7.9`.
 - **Reuse Min's build scripts**: `scripts/buildLinux.js`, `buildAppImage.js`, `buildDebian.js`,
   `buildRedhat.js`, `createPackage.js`.
+- **Bump `electron-builder` from `^24.13.3` to `^26.17.0`.** Required for `desktopName` support
+  (§4.1). This is a two-major-version jump and is one of the larger mechanical changes in this
+  sub-project; `createPackage.js` also needs its `afterPack` fuse-flip path corrected, because it
+  recomputes the executable name from `productName` instead of reading the configured one.
 - Because Electron is bundled, the distro-side version substitution used by Min's AUR recipe
   (`@ELECTRON_DIST@` / `@ELECTRON_VERSION@` patching of `createPackage.js`) is **not** needed.
 - **Artifact naming:** package `mercury-browser`, binary `mercury-browser`, desktop file
   `org.mercury.Browser.desktop`. The `.desktop` basename **must** equal `desktopName`, or portal
-  identity and window grouping break.
-- Rebrand `resources/postinst_script` and `resources/prerm_script`.
+  identity and window grouping break. The shared Linux identity options (executable name,
+  `syncDesktopName`, icon, category, MIME types) live in one module rather than being repeated in
+  each of the three packaging scripts, because a desync there fails silently at runtime.
+- Package `description` and `synopsis` are **rewritten**, not renamed: Min's copy advertises
+  DuckDuckGo instant answers and Min's feature set, which is not Mercury's.
+- Rebrand `resources/postinst_script` and `resources/prerm_script` (`/opt/Min/min`,
+  `min.desktop`, `/usr/bin/min`, the `x-www-browser` alternative).
 - Rebrand application icons (`icons/icon256.png`, `icon.icns`, `icon.ico`, and the icon font).
 
 ### 4.6 Repository setup and upstream hedge
@@ -269,7 +286,7 @@ Min is `Apache-2.0`. These are obligations, not choices:
 | R1 | Scheme rename missed in a preload script | Settings page silently broken — no exception, blank UI | Functional test SC5 is mandatory; `js/util/urlParser.js` reviewed explicitly |
 | R2 | 35 locale files edited mechanically | Malformed JSON breaks localization at build or runtime | Build fails loudly; validate with `JSON.parse` over all files (§6) |
 | R3 | Bundled Electron | Mercury now owns engine security upgrades, layered on top of the Min fork | Track Electron releases; this is the highest-value patch stream and pairs with the §4.6 process |
-| R4 | Electron 43 does not honour `desktopName` in `package.json` | Wrong app_id → broken icon/grouping, and portal sessions (global shortcuts) can be refused | Verify at first run; fallback is an explicit `app.setDesktopName()` call before `ready` |
+| R4 | ~~Electron 43 does not honour `desktopName`~~ — **resolved, §4.1/§4.5** | Wrong `app_id` → broken icon/grouping, portal sessions refused | Electron derives `app_id`/`WM_CLASS` from `desktopName`; electron-builder honours it only with `linux.syncDesktopName` from 26.17.0, so the plan bumps electron-builder. Residual risk is build-time and is caught by the packaging test |
 | R5 | Fresh repository has no upstream history | Security fixes are easy to miss | Monthly §4.6 review, treated as a standing task |
 | R6 | No update notification for AppImage users | Users run vulnerable versions unknowingly | Accepted for v0.1; re-evaluate at first release |
 
@@ -280,20 +297,28 @@ Min is `Apache-2.0`. These are obligations, not choices:
 Static checks (must all pass before dynamic testing):
 
 ```bash
-# No Min infrastructure references anywhere in the built output
-grep -rniE "minbrowser" dist/ js/ pages/ reader/ index.html
-# expected: no matches
+# No *functional* reference to Min infrastructure survives.
+# Comments are stripped first: ~20 source comments cite upstream issue URLs
+# (github.com/minbrowser/min/issues/NNN) that are accurate history and must NOT be
+# rewritten. decomment is already a dependency, and is how the localization build
+# itself reads these files.
+node --test test/no-min-infrastructure.test.js
 
-# Scheme fully renamed
-grep -rn "min://" dist/ js/ pages/ reader/ index.html
-# expected: no matches
+# Scheme fully renamed, comments excluded
+node --test test/scheme.test.js
 
-# All 35 locale files are valid JSON
-for f in localization/languages/*.json; do node -e "JSON.parse(require('fs').readFileSync('$f'))" || echo "INVALID: $f"; done
+# All 35 locale files parse. They are JSONC — `/* */` and `//` comments are used
+# throughout, so a bare JSON.parse rejects valid files. Strip comments first.
+node -e "const d=require('decomment'),fs=require('fs');for(const f of fs.readdirSync('localization/languages')){JSON.parse(d(fs.readFileSync('localization/languages/'+f,'utf8')))};console.log('all locales parse')"
 
-# Product name no longer appears in localized strings
+# Product name no longer appears in localized strings.
+# -w is load-bearing: without it this matches timeRangeMinutes and appMenuMinimize.
 grep -o -w "Min" dist/localization.build.js | wc -l
 # expected: 0
+
+# The scheme rename reached the process command line
+grep -o -- "--standard-schemes=[a-z]*" /proc/$(pgrep -f mercury-browser | head -1)/cmdline
+# expected: --standard-schemes=mercury
 ```
 
 Dynamic checks, mapped to the success criteria:
@@ -318,6 +343,13 @@ privacy claim verifiable rather than asserted.
 
 1. No in-app update notification (R6), affecting AppImage users specifically.
 2. No auto-update; updates are manual or package-manager driven.
+3. **Page translation is removed** (decision, §4.2). Min's translation feature downloads Bergamot
+   models from `services.minbrowser.org`, which is Min's infrastructure and cannot remain. Mercury
+   hosts no model registry, so the feature is withdrawn in v0.1 rather than silently pointed
+   elsewhere. Reinstating it means hosting the models or finding a third-party registry.
+4. **The first-run tour is removed** and the Help menu no longer links to Min's site, wiki or issue
+   tracker. Those links point at the Mercury repository instead; there is no wiki, tour or docs site
+   yet, so some Help entries are dropped rather than redirected.
 
 **Open questions carried forward (not blocking this sub-project)**
 
