@@ -38,6 +38,25 @@ const GOOD_CONTROL = [
   ''
 ].join('\n')
 
+// The attribution files the real package ships inside resources/app: Min's
+// licence, and the fork's NOTICE. Trimmed to what the verifier reads.
+const GOOD_LICENSE = [
+  '                                 Apache License',
+  '                           Version 2.0, January 2004',
+  '                        http://www.apache.org/licenses/',
+  ''
+].join('\n')
+
+const GOOD_NOTICE = [
+  'Mercury',
+  '=======',
+  '',
+  'Mercury is a modified fork of Min (https://github.com/minbrowser/min).',
+  '',
+  '  Upstream version:  v1.35.7',
+  ''
+].join('\n')
+
 // Builds a synthetic .deb with the same shape as the one electron-builder emits:
 // ar(debian-binary, control.tar.gz, data.tar.gz).
 function buildDeb (opts = {}) {
@@ -62,6 +81,13 @@ function buildDeb (opts = {}) {
     const binary = path.join(installDir, 'mercury-browser')
     fs.writeFileSync(binary, '#!/bin/sh\nexit 0\n')
     fs.chmodSync(binary, opts.binaryMode === undefined ? 0o755 : opts.binaryMode)
+  }
+
+  if (!opts.skipLicenses) {
+    const appDir = path.join(installDir, 'resources', 'app')
+    fs.mkdirSync(appDir, { recursive: true })
+    fs.writeFileSync(path.join(appDir, 'LICENSE.txt'), opts.license || GOOD_LICENSE)
+    fs.writeFileSync(path.join(appDir, 'NOTICE'), opts.notice || GOOD_NOTICE)
   }
 
   if (opts.buildState) {
@@ -97,6 +123,8 @@ test('a correctly packaged .deb passes every check', () => {
   assert.match(output, /ok\s+the desktop file's StartupWMClass is org\.mercury\.Browser/)
   assert.match(output, /ok\s+the desktop file declares the mercury:\/\/ scheme handler/)
   assert.match(output, /ok\s+opt\/Mercury\/mercury-browser exists/)
+  assert.match(output, /ok\s+the app carries Min's Apache-2\.0 licence/)
+  assert.match(output, /ok\s+the app carries the fork's NOTICE, naming upstream and version/)
   assert.match(output, /0 failed/)
 })
 
@@ -180,6 +208,22 @@ test('it catches local build state shipped inside the app', () => {
   assert.strictEqual(status, 1, output)
   assert.match(output, /FAIL\s+the package carries no local build state/)
   assert.match(output, /observed: 1 offender\(s\): \.cache/)
+})
+
+test('it catches a package that ships without the licence and the NOTICE', () => {
+  const { status, output } = verify(buildDeb({ skipLicenses: true }))
+  assert.strictEqual(status, 1, output)
+  assert.match(output, /FAIL\s+the app carries Min's Apache-2\.0 licence/)
+  assert.match(output, /FAIL\s+the app carries the fork's NOTICE, naming upstream and version/)
+  assert.match(output, /LICENSE\.txt is missing/)
+})
+
+test('it catches a NOTICE that does not name the upstream it forked', () => {
+  const notice = GOOD_NOTICE.replace('v1.35.7', 'the last one')
+  const { status, output } = verify(buildDeb({ notice }))
+  assert.strictEqual(status, 1, output)
+  assert.match(output, /FAIL\s+the app carries the fork's NOTICE, naming upstream and version/)
+  assert.match(output, /NOTICE is present but does not name the upstream project and version/)
 })
 
 test('it reports a clear error rather than a stack trace when there is nothing to verify', () => {

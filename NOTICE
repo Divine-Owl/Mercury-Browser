@@ -1,0 +1,64 @@
+Mercury
+=======
+
+Mercury is a modified fork of Min (https://github.com/minbrowser/min).
+
+  Upstream project:  Min, https://github.com/minbrowser/min
+  Upstream version:  v1.35.7
+  Forked on:         2026-10-18
+  Upstream licence:  Apache License 2.0 (see LICENSE.txt, retained unchanged)
+  This project:      Mercury, https://github.com/Divine-Owl/Mercury-Browser
+
+Modifications
+-------------
+
+The fork renames the product and removes its network-facing infrastructure. The
+changes below are all of them; the rest of the code is Min v1.35.7.
+
+Identity:
+
+  - The product is named Mercury. The binary and package are `mercury-browser`,
+    the desktop entry is `org.mercury.Browser`, and the version starts at 0.1.0.
+  - The internal URL scheme was renamed from `min://` to `mercury://`, including
+    the preload scripts that guard on it.
+  - Window titles, HTML titles, user-agent strings, the search-engine tag, the
+    registry entries and the packaging metadata were rebranded.
+  - The user-facing strings in all 35 localisation files were rebranded. The key
+    set of each file is unchanged.
+
+Removals (features that communicated with Min's infrastructure):
+
+  - Usage statistics collection, its setting, and its settings-page toggle.
+  - The update feed and the update notification UI.
+  - The first-run tour, and a survey prompt that was already dead code.
+  - Page translation, which was the last live request path to a Min-run service.
+  - Min's donation, download, community and Discord links.
+
+Telemetry-free: Mercury collects no usage statistics and has no update feed. It
+does not contact minbrowser.org or any host operated by the Min project.
+
+Notices
+-------
+
+  - LICENSE.txt is Min's Apache-2.0 licence, retained unchanged.
+  - Min's bundled third-party components keep their own licences, which continue
+    to ship: ext/abp-filter-parser-modified, ext/readability-master, ext/franc,
+    ext/xregexp, ext/textColor and ext/publicSuffixes. See the LICENSE files
+    inside each directory.
+  - Min's logo and other trademark artwork are not covered by Apache-2.0. Icon
+    files in this repository are not Min's artwork.
+
+Provided as-is, without warranty of any kind, as set out in LICENSE.txt.
+
+Open compliance question
+------------------------
+
+Apache-2.0 section 4(b) asks for prominent notices on files that have been
+modified. This fork currently satisfies attribution through this NOTICE, the git
+history of the fork, and the retained LICENSE.txt, rather than through a per-file
+header. Min itself ships no per-file copyright headers, so adding them would mean
+introducing a new convention across the tree.
+
+The strict reading of 4(b) - that every modified file carries a notice - has not
+been adopted. It is recorded here as unresolved rather than as settled, so it can
+be decided deliberately before anything is published widely.

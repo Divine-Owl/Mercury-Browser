@@ -274,6 +274,35 @@ function main () {
       buildState.length === 0,
       `${buildState.length} offender(s): ${buildState.slice(0, 5).join(', ')}`
     )
+
+    // ---- attribution, which has to travel with the artifact
+    // Min is Apache-2.0, and section 4(d) requires a distribution to carry the
+    // notices that came with it. Left unchecked this is invisible: the app binary
+    // is identical whether or not LICENSE.txt and NOTICE are inside
+    // resources/app, and the files list in createPackage.js includes them only
+    // because nothing excludes them - one `!LICENSE.txt` or a `!**/*.txt` away
+    // from a package that ships somebody else's code with no attribution.
+    const appDir = path.join(tmp, 'data', 'opt', pkg.productName, 'resources', 'app')
+    const licensePath = path.join(appDir, 'LICENSE.txt')
+    const noticePath = path.join(appDir, 'NOTICE')
+
+    const license = fs.existsSync(licensePath) ? fs.readFileSync(licensePath, 'utf8') : ''
+    check(
+      "the app carries Min's Apache-2.0 licence",
+      /Apache License/.test(license) && /Version 2\.0/.test(license),
+      fs.existsSync(licensePath)
+        ? 'LICENSE.txt is present but does not read as Apache-2.0'
+        : `${licensePath} is missing`
+    )
+
+    const notice = fs.existsSync(noticePath) ? fs.readFileSync(noticePath, 'utf8') : ''
+    check(
+      "the app carries the fork's NOTICE, naming upstream and version",
+      /minbrowser\/min/.test(notice) && /v1\.35\.7/.test(notice),
+      fs.existsSync(noticePath)
+        ? 'NOTICE is present but does not name the upstream project and version'
+        : `${noticePath} is missing`
+    )
   } catch (e) {
     console.log(`  FAIL  extraction threw: ${e.message}`)
     failures++
