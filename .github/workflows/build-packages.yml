@@ -1,9 +1,15 @@
 name: Build Package
+
+# Manual only. The push and pull-request path is ci.yml, which builds and verifies
+# the .deb on every run. This workflow exists to produce the release artifacts for
+# the three formats Mercury v0.1 ships.
 on: [workflow_dispatch]
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -14,6 +20,42 @@ jobs:
             cmd: npm run buildRedhat
             artifact: linux-rpm-package
             path: dist/app/*.rpm
+          - os: ubuntu-latest
+            cmd: npm run buildAppImage
+            artifact: linux-appimage-package
+            path: dist/app/*.AppImage
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - run: npm install --omit=optional
+    - name: build package
+      run: ${{ matrix.cmd }}
+    - name: upload package
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact }}
+        path: ${{ matrix.path }}
+        # Artifacts are re-derivable from the workflow, so they are not kept
+        # indefinitely. This repository is public and does not pay for them, but
+        # the habit is worth keeping.
+        retention-days: 14
+
+  # The platform-later path, kept so the configuration is not rebuilt from scratch
+  # when Windows and macOS are picked up. It does not run, and it would not work if
+  # it did: both scripts still name Min's artifacts (`Min.app`,
+  # `Min-v<version>-windows.zip`, `min-<version>-setup.exe`) and they still carry
+  # Min's names throughout, while `productName: 'Mercury'` means electron-builder
+  # now emits `Mercury.app`. Fixing them is part of that milestone, not SP0 - see
+  # the ledger's deferred section for the full list.
+  platform-later:
+    if: ${{ false }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
           - os: windows-latest
             cmd: npm run buildWindows
             artifact: windows-package
@@ -38,7 +80,7 @@ jobs:
     - uses: actions/checkout@v4
     - uses: actions/setup-node@v4
       with:
-        node-version: 25
+        node-version: 22
     - run: npm install --omit=optional
     - name: build package
       run: ${{ matrix.cmd }}

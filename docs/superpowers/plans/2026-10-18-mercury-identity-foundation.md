@@ -978,9 +978,15 @@ node -e "const d=require('decomment'),fs=require('fs');for(const f of fs.readdir
 
 Because `.npmrc` redirects npm's cache into the workspace, it now holds `${{ github.workspace }}/.cache/npm` on the runner too. That is harmless, and worth caching with `actions/cache` keyed on `hashFiles('package.json')` — the alternative is re-downloading the whole dependency tree on every run. Add it to the `package` job's cache and key it on `package.json`.
 
+Two things needed adjusting while writing it. **`actions/setup-node`'s `cache: npm` must not be used:** it requires a lockfile and this repository has none, so the job would fail before it installed anything — the cache is declared explicitly with `actions/cache` instead, which is why the key is `package.json`'s hash rather than a lockfile's. And the Electron binary is a ~100 MB download that `setupDevEnv.js` needs at `postinstall` time, so `~/.cache/electron` is cached beside the npm cache.
+
+The two built-output assertions were run on the development host before being baked into CI, since a wrong assertion there is a red build for everyone: 0 whole-word `Min` and 356 `Mercury` in `dist/localization.build.js`, and all locales parse.
+
 - [ ] **Step 2: Update the upstream packaging workflow**
 
 `build-packages.yml` is `workflow_dispatch`-only and builds Windows, macOS and Linux. Trim it to what Mercury v0.1 ships (deb, rpm, AppImage) and let `ci.yml` own the push/PR path. Do not delete the macOS/Windows matrix outright — mark it as the platform-later path so it is not rebuilt from scratch.
+
+Keep it as a second job with `if: ${{ false }}` rather than as commented-out YAML: the configuration stays parseable, stays visible in the Actions UI as a skipped job, and cannot be run by accident — which a comment also achieves, but a comment cannot be validated and is the first thing to rot. The job carries a note that it would not work if enabled, because both scripts still name Min's artifacts while electron-builder now emits `Mercury.app`.
 
 - [ ] **Step 3: Confirm the quota assumption**
 
@@ -989,9 +995,12 @@ The repository is public (`Divine-Owl/Mercury-Browser`), so Actions minutes are 
 - [ ] **Step 4: Push and watch a run**
 
 ```bash
-git push -u origin main
+git push -u origin sp0-identity-foundation
 ```
-Then dispatch or observe the workflow and confirm both jobs pass. **This is the first end-to-end proof that the identity wiring produces a correct package.**
+
+Under this sub-project's isolation ruling the branch is pushed and a **draft pull request against `main` is opened**, rather than pushing `main` — see the ledger's ruling. That is not only a process preference: `workflow_dispatch` **cannot** be used to run `ci.yml` on this branch, because GitHub only offers a workflow for dispatch once the file exists on the default branch. `pull_request` is the trigger that works for an unreviewed branch, which is why `ci.yml` declares it.
+
+Then observe the run and confirm both jobs pass. **This is the first end-to-end proof that the identity wiring produces a correct package.**
 
 - [ ] **Step 5: Commit**
 

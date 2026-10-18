@@ -1,0 +1,113 @@
+name: CI
+
+# `pull_request` is the trigger that matters while the identity work is reviewed:
+# it fires for a branch without anything being merged. `workflow_dispatch` cannot
+# be relied on for that, because GitHub only offers a workflow for dispatch once it
+# exists on the default branch. `push: main` is the path after a merge.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# This repository is public, so Actions minutes are free. If it is ever made
+# private these jobs will stop at the free quota instead of being billed - an
+# expected stop, not a transient failure, and not a reason to build locally.
+
+jobs:
+  test:
+    name: Lint and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          # Deliberately no `cache: npm` here. This repository has no lockfile -
+          # it is gitignored upstream and never committed - and setup-node's
+          # built-in caching refuses to run without one. The download cache is
+          # cached by hand below instead.
+
+      # .npmrc sets `cache=./.cache/npm`, so on a runner the cache lands inside the
+      # workspace rather than in ~/.npm. Keyed on package.json because there is no
+      # lockfile to key on; the restore-key keeps a near-miss useful.
+      - name: Cache the npm download cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package.json') }}
+          restore-keys: npm-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm install --omit=optional
+
+      # `npm test` is not the gate. The imported tree carries 643 long-standing
+      # `standard` errors and standard cannot even parse main/main.js (a top-level
+      # return). test:lint compares per-file error counts against
+      # test/fixtures/lint-baseline.json and fails only on growth.
+      - name: Lint - no new errors against the baseline
+        run: npm run test:lint
+
+      - name: Unit tests
+        run: npm run test:unit
+
+  package:
+    name: Build and verify the .deb
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The Electron binary is a ~100 MB download on every run; caching it beside
+      # the npm cache is the difference between a two-minute job and a ten-minute
+      # one. ~/.cache/electron is electron's default location in CI, where
+      # scripts/devEnv.sh does not run.
+      - name: Cache the npm and Electron download caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/npm
+            ~/.cache/electron
+          key: npm-${{ runner.os }}-${{ hashFiles('package.json') }}
+          restore-keys: npm-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm install --omit=optional
+
+      - name: Build
+        run: npm run build
+
+      # Spec section 6. The built output is checked, not just the source: a
+      # rebrand that missed a locale would pass every source-level test, because
+      # the bundle is assembled from localization/languages at build time. Both of
+      # these hold on the development host - 0 whole-word `Min` and 356 `Mercury`
+      # in the bundle, and every locale parses after decommenting.
+      - name: Assert the built output carries no Min branding
+        run: |
+          set -e
+          count=$(grep -o -w "Min" dist/localization.build.js | wc -l)
+          echo "whole-word 'Min' in dist/localization.build.js: $count (expected 0)"
+          test "$count" -eq 0
+
+          node -e "
+            const decomment = require('decomment')
+            const fs = require('fs')
+            for (const file of fs.readdirSync('localization/languages')) {
+              JSON.parse(decomment(fs.readFileSync('localization/languages/' + file, 'utf8')))
+            }
+            console.log('all locales parse')
+          "
+
+      - name: Build the .deb
+        run: npm run buildDebian
+
+      # The only check that can catch a wrong desktopName wiring: the build
+      # succeeds and the browser works, it just installs a desktop file that no
+      # desktop environment associates with the window.
+      - name: Verify the packaged .deb
+        run: npm run verifyPackage
