@@ -26,6 +26,13 @@ global.window = {
 }
 global.localStorage = global.window.localStorage
 
+// With nodeIntegration, Electron injects Node's builtins into the renderer as
+// globals, so renderer modules use a bare `fs` instead of require('fs'):
+// js/util/settings/settings.js and js/util/hosts.js both do, and
+// js/util/urlParser.js pulls both in. Without this the urlParser test dies on a
+// ReferenceError at load and never reaches its assertions.
+global.fs = require('node:fs')
+
 // NODE_PATH is process-wide and is read by _initPaths(), so it is set around
 // the require and restored afterwards: leaving it set would change how every
 // later require in the same test file resolves.

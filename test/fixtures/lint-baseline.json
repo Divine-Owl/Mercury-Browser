@@ -61,7 +61,7 @@
  "main/keychainService.js": 8,
  "main/main.js": 1,
  "main/menu.js": 74,
- "main/minInternalProtocol.js": 10,
+ "main/mercuryInternalProtocol.js": 10,
  "main/permissionManager.js": 22,
  "main/prompt.js": 9,
  "main/registryConfig.js": 4,

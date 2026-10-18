@@ -29,7 +29,7 @@ function captureCurrentTab (options) {
 
 // called whenever a new page starts loading, or an in-page navigation occurs
 function onPageURLChange (tab, url) {
-  if (url.indexOf('https://') === 0 || url.indexOf('about:') === 0 || url.indexOf('chrome:') === 0 || url.indexOf('file://') === 0 || url.indexOf('min://') === 0) {
+  if (url.indexOf('https://') === 0 || url.indexOf('about:') === 0 || url.indexOf('chrome:') === 0 || url.indexOf('file://') === 0 || url.indexOf('mercury://') === 0) {
     tabs.update(tab, {
       secure: true,
       url: url
@@ -104,7 +104,7 @@ const webviews = {
   placeholderRequests: [],
   asyncCallbacks: {},
   internalPages: {
-    error: 'min://app/pages/error/index.html'
+    error: 'mercury://app/pages/error/index.html'
   },
   events: [],
   IPCEvents: [],
@@ -209,7 +209,7 @@ const webviews = {
         ipc.send('loadURLInView', { id: tabData.id, url: urlParser.parse(tabData.url) })
       } else if (tabData.private) {
         // workaround for https://github.com/minbrowser/min/issues/872
-        ipc.send('loadURLInView', { id: tabData.id, url: urlParser.parse('min://newtab') })
+        ipc.send('loadURLInView', { id: tabData.id, url: urlParser.parse('mercury://newtab') })
       }
     }
 
@@ -466,7 +466,7 @@ webviews.bindIPC('setSetting', function (tabId, args) {
 settings.listen(function () {
   tasks.forEach(function (task) {
     task.tabs.forEach(function (tab) {
-      if (tab.url.startsWith('min://')) {
+      if (tab.url.startsWith('mercury://')) {
         try {
           webviews.callAsync(tab.id, 'send', ['receiveSettingsData', settings.list])
         } catch (e) {
@@ -484,7 +484,7 @@ webviews.bindIPC('scroll-position-change', function (tabId, args) {
 })
 
 webviews.bindIPC('downloadFile', function (tabId, args) {
-  if (tabs.get(tabId).url.startsWith('min://')) {
+  if (tabs.get(tabId).url.startsWith('mercury://')) {
     webviews.callAsync(tabId, 'downloadURL', [args[0]])
   }
 })

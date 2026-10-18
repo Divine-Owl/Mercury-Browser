@@ -117,9 +117,9 @@ function listenForDownloadHeaders (ses) {
 
     if (details.webContents &&
       (
-        (webContentsURL === 'min://app/index.html') ||
+        (webContentsURL === 'mercury://app/index.html') ||
         (
-          (webContentsURL.startsWith('min://app/pages/pdfViewer') || webContentsURL.startsWith('min://app/reader/')) &&
+          (webContentsURL.startsWith('mercury://app/pages/pdfViewer') || webContentsURL.startsWith('mercury://app/reader/')) &&
           isAccessAllowedFromContentPage(details.url, webContentsURL)
         )
       )
@@ -131,7 +131,7 @@ function listenForDownloadHeaders (ses) {
       callback({
         responseHeaders: {
           ...filteredHeaders,
-          'Access-Control-Allow-Origin': 'min://app',
+          'Access-Control-Allow-Origin': 'mercury://app',
           'Access-Control-Allow-Credentials': 'true'
         }
       })

@@ -71,7 +71,7 @@ if (settings.get('userSelectedLanguage')) {
   app.commandLine.appendSwitch('lang', settings.get('userSelectedLanguage'))
 }
 
-const browserPage = 'min://app/index.html'
+const browserPage = 'mercury://app/index.html'
 
 var mainMenu = null
 var secondaryMenu = null

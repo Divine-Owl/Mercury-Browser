@@ -513,15 +513,21 @@ git commit -m "feat: remove page translation, the last live dependency on Min in
 ### Task 6: Rename the `min://` scheme to `mercury://`
 
 **Files:**
-- Modify: `js/navbar/tabBar.js`, `js/navbar/tabEditor.js`, `js/pdfViewer.js`, `js/places/tagIndex.js`, `js/preload/default.js`, `js/readerView.js`, `js/searchbar/customBangs.js`, `js/sessionRestore.js`, `js/util/settings/settingsPreload.js`, `js/util/urlParser.js`, `js/webviews.js`, `main/main.js`
+- Modify: `js/navbar/tabBar.js`, `js/navbar/tabEditor.js`, `js/pdfViewer.js`, `js/places/tagIndex.js`, `js/preload/default.js`, `js/readerView.js`, `js/searchbar/customBangs.js`, `js/sessionRestore.js`, `js/util/settings/settingsPreload.js`, `js/util/urlParser.js`, `js/webviews.js`, `main/main.js`, `main/download.js`, `main/menu.js`, `main/prompt.js`, `main/viewManager.js`, `scripts/buildMain.js`
 - Rename: `main/minInternalProtocol.js` → `main/mercuryInternalProtocol.js`
+
+Four of those files were missing from an earlier revision of this list (`main/download.js`, `main/menu.js`, `main/prompt.js`, `main/viewManager.js`), as was `scripts/buildMain.js`. Do not trust the list without re-running:
+
+```bash
+grep -rnE "(['\"\`])min:|min://|(['\"\`])min(['\"\`])|minInternalProtocol" js main pages reader index.html scripts
+```
 - Create: `test/scheme.test.js`, `test/urlParser.test.js`
 
 **Interfaces:**
 - Consumes: `test/helpers/repo.js`, `test/helpers/renderer.js` (`loadRendererModule`)
-- Produces: nothing later tasks import.
+- Produces: nothing later tasks import. Note that this task **extends** the Task 2 helper: `loadRendererModule` must also expose a global `fs`, because Electron injects Node's builtins into the renderer, so `js/util/settings/settings.js` and `js/util/hosts.js` use a bare `fs` and `js/util/urlParser.js` requires both. Without it the urlParser test dies on `ReferenceError: fs is not defined` at load, before a single assertion runs — which looks like a broken test rather than a missing global.
 
-The test pattern is deliberately `(['"\`])min:(\/\/)?[a-zA-Z0-9]` — a bare `min:` pattern would false-positive on object keys such as `{ min: 0 }`, and requiring a quote aligns with how every real site is written.
+The test uses **three** patterns, and all three are needed. `(['"\`])min:(\/\/)?[a-zA-Z0-9]` catches a scheme followed by a URL; requiring the leading quote is what keeps it from false-positiving on object keys such as `{ min: 0 }`. But that can only see URLs, and the tree writes the scheme three other ways. `(['"\`])min:(\/\/)?['"\`)]` catches the bare form — `startsWith('min://')` in `js/places/tagIndex.js`, `js/preload/default.js`, `js/util/settings/settingsPreload.js` and `js/viewManager.js`, and `startsWith('min:')` in `js/util/urlParser.js`. `(['"\`])min(['"\`])` catches a scheme token with no colon at all, which is how `knownProtocols` in `main/viewManager.js` writes it. Missing a preload guard means the preload rejects Mercury's own internal pages; missing the `knownProtocols` entry means every `mercury://` URL is offered to the OS as an external protocol.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -582,11 +588,13 @@ Mechanical, across the twelve files listed above plus the protocol module:
 - `min://` → `mercury://`
 - `'min:'` → `'mercury:'` (the shortened form; `js/util/urlParser.js` normalises it)
 - the normaliser regex `/min:(\/\/)?/g` → `/mercury:(\/\/)?/g`
-- `git mv main/minInternalProtocol.js main/mercuryInternalProtocol.js`, then `scheme: 'min'` → `'mercury'` and `protocol.handle('min', ...)` → `protocol.handle('mercury', ...)`, and update the `require` of that module in `main/main.js`
+- `git mv main/minInternalProtocol.js main/mercuryInternalProtocol.js`, then `scheme: 'min'` → `'mercury'` and `protocol.handle('min', ...)` → `protocol.handle('mercury', ...)`. That module is **not** required by `main/main.js`: it is a browserify entry listed in `scripts/buildMain.js`, so that is the file whose path needs updating.
 
-Two sites are easy to miss and both are load-bearing:
-- `Access-Control-Allow-Origin: 'min://app'` in `main/main.js` — a response header, not a URL.
+Sites that are easy to miss, all of them load-bearing:
+- `Access-Control-Allow-Origin: 'min://app'` in **`main/download.js`**, not `main/main.js` — a response header, not a URL, and easy to lose because it does not look like one. `main/main.js` contributes only its `browserPage` constant.
 - The two preload guards, `js/preload/default.js` and `js/util/settings/settingsPreload.js`, which compare `e.origin`/`window.location` against the scheme. See Review Focus #2.
+- `main/viewManager.js`, twice: `startsWith('min://')`, and `knownProtocols = ['http', 'https', 'file', 'min', ...]`. The second decides whether a URL is handed to the OS as an external protocol — leave `'min'` in it and every `mercury://` URL looks external, because `'mercury'` is not in the list.
+- `js/util/urlParser.js` writes the scheme three ways: the normaliser regex `/min:(\/\/)?/g`, a `startsWith('min:')`, and the `isInternalURL`/`getSourceURL` pair. Only the URL-shaped ones are visible to a `min://` grep.
 
 - [ ] **Step 4: Run the tests — they must pass**
 

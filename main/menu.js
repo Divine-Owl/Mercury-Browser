@@ -94,7 +94,7 @@ function buildAppMenu (options = {}) {
     accelerator: 'CmdOrCtrl+,',
     click: function (item, window) {
       sendIPCToWindow(window, 'addTab', {
-        url: 'min://app/pages/settings/index.html'
+        url: 'mercury://app/pages/settings/index.html'
       })
     }
   }
