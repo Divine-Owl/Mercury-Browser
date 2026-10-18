@@ -75,6 +75,30 @@ function extract (debPath, tmp) {
   }
 }
 
+// Build state that must never leave the build machine: npm's download cache
+// (.npmrc points it at ./.cache/npm) and any virtualenv. Both live inside the
+// checkout by design, which is exactly why they are one `files` pattern away
+// from being shipped. Returns the offending paths relative to the data tree.
+function findLocalBuildState (root) {
+  const found = []
+  const walk = dir => {
+    let entries
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch (e) {
+      return
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const full = path.join(dir, entry.name)
+      if (entry.name === '.cache' || entry.name === '.venv') found.push(path.relative(root, full))
+      else walk(full)
+    }
+  }
+  walk(root)
+  return found
+}
+
 function desktopEntry (text) {
   const entry = {}
   for (const line of text.split('\n')) {
@@ -237,6 +261,19 @@ function main () {
         `mode ${(fs.statSync(binary).mode & 0o777).toString(8)}`
       )
     }
+
+    // ---- build state inside the shipped app
+    // This failed once for real, on a CI runner: electron-builder copied
+    // .cache/npm into resources/app, npm deleted one of its own debug logs
+    // mid-copy, and the build died with ENOENT - before a package existed, which
+    // is why the guard is here as well as in the files list. It is also the
+    // check that would catch a files pattern that stops pruning a directory.
+    const buildState = findLocalBuildState(path.join(tmp, 'data'))
+    check(
+      'the package carries no local build state (.cache/.venv)',
+      buildState.length === 0,
+      `${buildState.length} offender(s): ${buildState.slice(0, 5).join(', ')}`
+    )
   } catch (e) {
     console.log(`  FAIL  extraction threw: ${e.message}`)
     failures++

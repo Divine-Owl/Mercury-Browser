@@ -81,6 +81,18 @@ module.exports = function (platform, extraOptions) {
       '!**/._*',
       '!**/icons/source',
       '!dist/app',
+      // Local build state. .npmrc points npm's cache at ./.cache/npm and
+      // .gitignore declares both of these, so they live inside the checkout by
+      // design - which means electron-builder would otherwise copy them into
+      // resources/app. It did: on a CI runner the copy raced npm's own log
+      // rotation and the build died with ENOENT on .cache/npm/_logs/*.log, before
+      // a package was ever produced. A shipped app should not carry a build
+      // machine's download cache regardless.
+      //
+      // The `{,/**/*}` form is electron-builder's own - fileMatcher.js uses
+      // exactly this pattern for exactly this directory name.
+      '!.cache{,/**/*}',
+      '!.venv{,/**/*}',
       // this is copied during the build
       '!**/icons/icon.icns',
       // localization files are compiled and copied to dist

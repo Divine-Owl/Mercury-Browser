@@ -64,6 +64,14 @@ function buildDeb (opts = {}) {
     fs.chmodSync(binary, opts.binaryMode === undefined ? 0o755 : opts.binaryMode)
   }
 
+  if (opts.buildState) {
+    // Exactly the shape that broke the first CI run: npm's own debug log, inside
+    // the cache that .npmrc redirected into the checkout.
+    const logs = path.join(data, '.cache/npm/_logs')
+    fs.mkdirSync(logs, { recursive: true })
+    fs.writeFileSync(path.join(logs, '2026-10-18T14_47_02_849Z-debug-0.log'), 'npm http fetch GET 200\n')
+  }
+
   // -C into the tree and then name the tarball, exactly as fpm does. No
   // compression flags on the way out either; tar picks gzip here, but the
   // verifier has to cope with whatever electron-builder emits.
@@ -165,6 +173,13 @@ test('it catches a mis-named artifact and a version that does not match package.
   const wrongVersion = verify(buildDeb({ filename: 'mercury-browser-9.9.9-amd64.deb' }))
   assert.strictEqual(wrongVersion.status, 1, wrongVersion.output)
   assert.match(wrongVersion.output, /FAIL\s+artifact version matches package\.json/)
+})
+
+test('it catches local build state shipped inside the app', () => {
+  const { status, output } = verify(buildDeb({ buildState: true }))
+  assert.strictEqual(status, 1, output)
+  assert.match(output, /FAIL\s+the package carries no local build state/)
+  assert.match(output, /observed: 1 offender\(s\): \.cache/)
 })
 
 test('it reports a clear error rather than a stack trace when there is nothing to verify', () => {

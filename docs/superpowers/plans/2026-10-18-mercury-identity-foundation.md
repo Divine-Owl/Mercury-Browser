@@ -1002,6 +1002,10 @@ Under this sub-project's isolation ruling the branch is pushed and a **draft pul
 
 Then observe the run and confirm both jobs pass. **This is the first end-to-end proof that the identity wiring produces a correct package.**
 
+**The first run failed, at `Build the .deb`, and that is the argument for the job existing.** `.npmrc` redirects npm's cache into the checkout (`cache=./.cache/npm`), which is what the containment constraint asks for, and `scripts/createPackage.js`'s `files` list had no exclusion for it. The app directory is packaged from the repository root, so `.cache/npm` was being copied into `resources/app`; npm rewrites and deletes its own debug logs while it runs, the copy raced that, and the build died with `ENOENT: copyfile .../.cache/npm/_logs/<ts>-debug-0.log -> dist/app/linux-unpacked/resources/app/.cache/npm/_logs/...`. No local run could see it: the failure needs a fresh `npm install` writing logs while electron-builder enumerates the directory, and packaging is CI-only.
+
+The fix is two patterns, in electron-builder's own form for this exact directory name (`fileMatcher.js` itself uses `!.cache{,/**/*}`), with a guard on each side: a unit test that the exclusions are present in `scripts/createPackage.js`, and a `verifyPackage.js` check that no `.cache` or `.venv` directory exists anywhere in the extracted data tree. The verifier check is the one that catches a `files` pattern that stops pruning a directory — a failure mode that otherwise looks like success, because the build completes and ships a build machine's download cache to users.
+
 - [ ] **Step 5: Commit**
 
 ```bash

@@ -124,6 +124,23 @@ test('no Min packaging name survives in the Linux packaging path', () => {
   assert.match(readFile('scripts/buildRedhat.js'), /packageName: 'mercury-browser'/)
 })
 
+test('local build state is never packaged into the app', () => {
+  // .npmrc points npm's cache at ./.cache/npm and .gitignore declares both of
+  // these as living inside the checkout, so the `files` list is all that stands
+  // between them and resources/app. On the first CI run electron-builder copied
+  // .cache/npm into the app, npm deleted one of its own logs mid-copy, and the
+  // build died with ENOENT before a package existed. The `{,/**/*}` form is
+  // electron-builder's own convention - fileMatcher.js uses exactly this pattern
+  // for exactly this directory name.
+  const src = readFile('scripts/createPackage.js')
+  for (const dir of ['.cache', '.venv']) {
+    assert.ok(
+      src.includes(`'!${dir}{,/**/*}'`),
+      `scripts/createPackage.js must exclude ${dir} from the packaged app`
+    )
+  }
+})
+
 test('electron-builder is new enough for linux.syncDesktopName', () => {
   // 24.13.3 has no desktopName support at all: grep -r syncDesktopName
   // node_modules/app-builder-lib/out returns nothing. 26.17.0 has
