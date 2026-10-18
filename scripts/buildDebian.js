@@ -3,18 +3,18 @@ const Platform = builder.Platform
 const Arch = builder.Arch
 
 const createPackage = require('./createPackage.js')
+const linuxIdentity = require('./linuxIdentity.js')
 
 async function afterPackageBuilt (path, arch) {
+  // Only what is specific to a .deb. The shared identity - icon, category,
+  // mimeTypes, maintainer, synopsis, description, executableName and
+  // syncDesktopName - comes from linuxIdentity.js: electron-builder's
+  // FpmTarget merges the `linux` options underneath these, so deb and rpm are
+  // described by one definition instead of two that had already drifted.
   var installerOptions = {
-    artifactName: 'min-${version}-${arch}.deb',
-    packageName: 'min',
-    icon: 'icons/icon256.png',
-    category: 'Network;WebBrowser',
+    artifactName: 'mercury-browser-${version}-${arch}.deb',
+    packageName: 'mercury-browser',
     packageCategory: 'Network',
-    mimeTypes: ['x-scheme-handler/http', 'x-scheme-handler/https', 'text/html'],
-    maintainer: 'Min Developers <280953907a@zoho.com>',
-    description: 'Min is a fast, minimal browser that protects your privacy.',
-    synopsis: 'A web browser with smarter search, improved tab management, and built-in ad blocking. Includes full-text history search, instant answers from DuckDuckGo, the ability to split tabs into groups, and more.',
     depends: [
       'libsecret-1-0',
       'libasound2',
@@ -38,6 +38,7 @@ async function afterPackageBuilt (path, arch) {
 
   const options = {
     linux: {
+      ...linuxIdentity,
       target: ['deb']
     },
     directories: {

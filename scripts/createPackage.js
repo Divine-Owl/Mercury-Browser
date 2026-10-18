@@ -4,6 +4,7 @@ const Arch = builder.Arch
 
 const { flipFuses, FuseVersion, FuseV1Options } = require('@electron/fuses')
 const path = require('path')
+const linuxIdentity = require('./linuxIdentity.js')
 
 function toPath (platform, arch) {
   if (platform == 'win32') {
@@ -50,8 +51,12 @@ module.exports = function (platform, extraOptions) {
     }[context.electronPlatformName]
 
     const IS_LINUX = context.electronPlatformName === 'linux'
+    // electron-builder names the Linux binary from linux.executableName, which
+    // is mercury-browser, while productFilename is still Mercury - so the
+    // old expression resolved to `mercury` and flipFuses would look for a
+    // file that no build produces.
     const executableName = IS_LINUX
-      ? context.packager.appInfo.productFilename.toLowerCase().replace('-dev', '')
+      ? context.packager.executableName || context.packager.appInfo.productFilename.toLowerCase().replace('-dev', '')
       : context.packager.appInfo.productFilename
 
     const electronBinaryPath = path.join(
@@ -90,6 +95,7 @@ module.exports = function (platform, extraOptions) {
       '!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}'
     ],
     linux: {
+      ...linuxIdentity,
       target: [
         {
           target: 'dir',

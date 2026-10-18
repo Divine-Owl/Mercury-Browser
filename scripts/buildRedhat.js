@@ -4,6 +4,8 @@ const builder = require('electron-builder')
 const Platform = builder.Platform
 const Arch = builder.Arch
 
+const linuxIdentity = require('./linuxIdentity.js')
+
 function toArch (platform) {
   switch (platform) {
     case 'amd64':
@@ -18,21 +20,16 @@ function toArch (platform) {
 }
 require('./createPackage.js')('linux', { arch: Arch.x64 }).then(function (path) {
   var installerOptions = {
-    artifactName: 'min-${version}-${arch}.rpm',
-    packageName: 'Min',
-    icon: 'icons/icon256.png',
-    category: 'Network',
-    packageCategory: 'Network',
-    mimeTypes: ['x-scheme-handler/http', 'x-scheme-handler/https', 'text/html'],
-    maintainer: 'Min Developers <280953907a@zoho.com>',
-    synopsis: 'Min is a fast, minimal browser that protects your privacy.',
-    description: 'A web browser with smarter search, improved tab management, and built-in ad blocking. Includes full-text history search, instant answers from DuckDuckGo, the ability to split tabs into groups, and more.'
+    artifactName: 'mercury-browser-${version}-${arch}.rpm',
+    packageName: 'mercury-browser',
+    packageCategory: 'Network'
   }
 
   console.log('Creating package (this may take a while)')
 
   const options = {
     linux: {
+      ...linuxIdentity,
       target: ['rpm']
     },
     directories: {

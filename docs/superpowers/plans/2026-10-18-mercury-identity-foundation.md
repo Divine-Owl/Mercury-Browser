@@ -793,8 +793,11 @@ git commit -m "feat: rebrand window titles, HTML titles, registry identity and s
 ### Task 9: Packaging identity
 
 **Files:**
-- Create: `scripts/linuxIdentity.js`, `icons/icon256.png`, `icons/icon256.ico`
+- Create: `scripts/linuxIdentity.js`, `scripts/buildIcons.js` (the placeholder-art generator), `test/packaging.test.js`
+- Replace: `icons/icon256.png`, `icons/icon256.ico`, `icons/icon.icns`
 - Modify: `package.json`, `scripts/createPackage.js`, `scripts/buildDebian.js`, `scripts/buildAppImage.js`, `scripts/buildRedhat.js`, `resources/postinst_script`, `resources/prerm_script`
+
+`icons/icon.icns` is not in an earlier revision of this list. It is Min's macOS app icon, referenced by `createPackage.js`'s mac block, and it is the same class of defect as Min's name in the About box: a fork that presents someone else's logo. It is regenerated from the same placeholder.
 
 **Interfaces:**
 - Produces: `scripts/linuxIdentity.js` — a CommonJS module exporting the shared Linux packaging options:
@@ -805,7 +808,15 @@ One module rather than four copies: `desktopName` support requires **both** the 
 
 - [ ] **Step 1: Bump electron-builder**
 
-`package.json` `devDependencies`: `"electron-builder": "^24.13.3"` → `"^26.17.0"`. Version 26.17.0 is the first stable release whose `LinuxTargetHelper.getDesktopFileName()` reads `package.json` `desktopName` when `linux.syncDesktopName` is set; 24.13.3 has no `desktopName` support at all. This is a two-major bump — if it surfaces unrelated breakage, stop and report rather than pinning back.
+`package.json` `devDependencies`: `"electron-builder": "^24.13.3"` → `"^26.17.0"`. Version 26.17.0 is the first stable release whose `LinuxTargetHelper.getDesktopFileName()` reads `package.json` `desktopName` when `linux.syncDesktopName` is set; 24.13.3 has no `desktopName` support at all — `grep -r syncDesktopName node_modules/app-builder-lib/out` returns nothing, and neither does `desktopName`. This is a two-major bump — if it surfaces unrelated breakage, stop and report rather than pinning back.
+
+Both claims in this task were checked against the published 26.17.0 source rather than assumed, by unpacking `npm pack app-builder-lib@26.17.0` into `.cache/` and reading it:
+
+- `out/targets/LinuxTargetHelper.js` defines `getDesktopFileName(fallback = this.packager.executableName)`, which returns `fallback` unless `packager.platformSpecificBuildOptions.syncDesktopName` is set, and otherwise reads `packager.info.metadata.desktopName`. So the wiring is exactly `package.json` `desktopName` + `linux.syncDesktopName`.
+- `out/linuxPackager.js` sets `this.executableName` from `platformSpecificBuildOptions.executableName`, falling back to `sanitizedName.toLowerCase()`. It is an instance *property*, so it is readable from `afterPack` as `context.packager.executableName`.
+- `out/platformPackager.js:320` uses that same property to locate the binary for its own `@electron/fuses` pass, which is the same job `createPackage.js` does by hand.
+
+Note when reviewing the version: `npm view electron-builder dist-tags` reports `latest: 26.15.3` while `26.17.0` carries the `v26` tag. `^26.17.0` is the intended range regardless.
 
 - [ ] **Step 2: Write the shared identity module**
 
@@ -820,9 +831,22 @@ const executableName = context.packager.executableName ||
   context.packager.appInfo.productFilename.toLowerCase().replace('-dev', '')
 ```
 
+The property exists on `LinuxPackager` (see Step 1) and is populated from `linux.executableName`, so this resolves to `mercury-browser` rather than `mercury` — which is also why Step 4 and this fix are coupled: without the spread there is no `executableName` to read, and the fallback is the broken expression.
+
 - [ ] **Step 4: Spread the shared options**
 
-In each of `createPackage.js`, `buildDebian.js`, `buildAppImage.js` and `buildRedhat.js`, replace the hard-coded `linux` options with `{ ...require('./linuxIdentity.js'), target: [...] }`, keeping each script's own `target`.
+In each of `createPackage.js`, `buildDebian.js`, `buildAppImage.js` and `buildRedhat.js`, spread `linuxIdentity` into `options.linux`, keeping each script's own `target`.
+
+**Where the fields go is not the same problem in all four scripts, and the difference matters.** `createPackage.js` and `buildAppImage.js` already had a `linux:` block, so the spread replaces a duplicate. `buildDebian.js` and `buildRedhat.js` had **no** `linux:` block at all — their identity lived under `deb:` and `rpm:` — so for those two the instruction means *moving* the fields, not adding to an existing object.
+
+The right destination for all of them is `linux:`, verified against the source:
+
+- `FpmTarget`'s constructor is `this.options = deepAssign({}, this.packager.platformSpecificBuildOptions, this.packager.config[this.name])`, where `platformSpecificBuildOptions` is the `linux` object. Everything under `linux:` therefore reaches `deb` and `rpm` already, and the target block only needs to override or add.
+- The schema in `app-builder-lib/scheme.json` has `executableName` and `syncDesktopName` on `LinuxConfiguration` and **not** on `DebOptions` or `RpmOptions`, so spreading the identity into `deb:`/`rpm:` would declare two keys electron-builder does not accept there — while `platformSpecificBuildOptions` is the only object `syncDesktopName` is ever read from, so a copy under `deb:` would not have worked anyway.
+
+So `createPackage.js` gets `{ ...linuxIdentity, target: [...] }`; `buildAppImage.js` gets `{ ...linuxIdentity, target: ['AppImage'] }`; `buildDebian.js` and `buildRedhat.js` get `{ ...linuxIdentity, target: ['deb'] }` and `{ ...linuxIdentity, target: ['rpm'] }` with their `deb:`/`rpm:` blocks reduced to what is genuinely format-specific (`artifactName`, `packageName`, `packageCategory`, `depends`, `afterInstall`, `afterRemove`).
+
+This replaces four copies of the identity with one. It also fixes, as a side effect, a real inconsistency the copies had already drifted into: `buildDebian.js` and `buildAppImage.js` had Debian's `synopsis` and `description` the **wrong way round** (the one-line summary in `description`, the paragraph in `synopsis`), while `buildRedhat.js` had them right. `test/packaging.test.js` now asserts that `description` is the longer of the two.
 
 - [ ] **Step 5: Rename the artifacts and metadata**
 
@@ -836,11 +860,25 @@ In `resources/postinst_script` and `resources/prerm_script`, replace `/opt/Min/m
 
 - [ ] **Step 7: Replace the icons**
 
-Replace `icons/icon256.png` and `icons/icon256.ico` with Mercury artwork. **Placeholder art is acceptable for v0.1** — a flat rounded-square mark is enough for packaging to work and for Task 12's window-association check to be meaningful. Record "final artwork pending" as a follow-up; do not treat the placeholder as final.
+Replace `icons/icon256.png`, `icons/icon256.ico` and `icons/icon.icns` with Mercury artwork. **Placeholder art is acceptable for v0.1** — a flat rounded-square mark is enough for packaging to work and for Task 12's window-association check to be meaningful. Record "final artwork pending" as a follow-up; do not treat the placeholder as final.
+
+`icon256.png` is not only a packaging input: `main/main.js` points the `BrowserWindow` at it, so it is the icon in every window and task switcher, and it is what a screenshot of v0.1 will show.
+
+Commit the art **with a generator** (`scripts/buildIcons.js`) rather than three opaque binaries. It draws the mark from geometry — a rounded rectangle and five line segments — and writes the PNG, the multi-size ICO and the ICNS container itself, using only `zlib`, so there is no dependency to install and rerunning it is byte-identical (verified). Whoever supplies the final artwork can either replace the files or replace the drawing in the generator and rerun it, and either way the diff says which.
+
+Not replaced, and recorded in the ledger instead: `icons/source/*.pxm` (Min's logo sources, unshipped — `createPackage.js` excludes `**/icons/source`) and `icons/windows-installer.gif` (Min's NSIS animation, referenced by `buildWindows.js`). Both are Min trademark artwork, but neither is shipped by any v0.1 artifact and the GIF needs real replacement art rather than a fabricated one, so they belong to the deferred platform work.
 
 - [ ] **Step 8: Verify nothing builds locally**
 
-Do not run `npm run buildDebian` here — packaging runs in CI (Task 11). Confirm the edits are internally consistent by reading each script's `options` object.
+Do not run `npm run buildDebian` here — packaging runs in CI (Task 11). Confirm the edits are internally consistent without building, by simulating what electron-builder does with them:
+
+```js
+const identity = require('./scripts/linuxIdentity.js')
+// FpmTarget's constructor, in effect:
+const effective = deepAssign({}, identity, { target: ['deb'], packageName: 'mercury-browser' })
+```
+
+Two things to confirm from the result: that the merge really does carry `maintainer`, `synopsis`, `description`, `mimeTypes`, `category` and `executableName` through to the `deb` options, and that nothing LinuxConfiguration-only is left sitting under a target key. Reading the scripts is not enough on its own — the whole reason this task exists is that a build can succeed while the identity does not reach the artifact.
 
 - [ ] **Step 9: Commit**
 
