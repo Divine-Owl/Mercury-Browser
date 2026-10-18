@@ -1213,6 +1213,38 @@ git add -A
 git commit -m "docs: NOTICE, rewritten README and upstream hedge procedure"
 ```
 
+**Corrections and findings, recorded after the task was executed.**
+
+**Step 1's check does not test what it says.** `git diff db616c9 -- LICENSE.txt` prints the
+file as *newly added* — because `db616c9` is the spec commit and `LICENSE.txt` arrived
+afterwards, in the import commit `03b139a`. It reads like a failure and would pass a
+mindless "no output means fine" reading only if it printed nothing, which it never
+will. The check that means what the step intends is against the import commit:
+`git log --oneline -- LICENSE.txt` lists `03b139a` and nothing else, and
+`git diff 03b139a --stat -- LICENSE.txt` is empty. Verified that way; the file is
+Min's Apache-2.0 text, untouched, and no source file in `main/`, `js/` or `pages/`
+carries a per-file notice to preserve (Min ships none), which is what makes the §4(b)
+question in the NOTICE a genuine open question rather than an oversight.
+
+**The attribution claim needed a check on the artifact, not just a NOTICE in the tree.**
+Apache-2.0 §4(d) requires the notices to travel with a distribution, and the app binary
+is byte-identical whether or not `LICENSE.txt` and `NOTICE` are inside
+`resources/app`: `createPackage.js`'s `files` list includes them today only because
+nothing excludes them, which is one `!**/*.txt` or `!LICENSE*` away from shipping
+somebody else's code with no attribution — silently, since unlike the `desktopName`
+failure this one leaves a package that works perfectly. `verifyPackage` now reads both
+files out of the unpacked tree (`opt/Mercury/resources/app/`), requires the licence to
+read as Apache-2.0 and the NOTICE to name the upstream repository and version, and
+`test/verifyPackage.test.js` covers a package that ships neither and a NOTICE that
+does not name upstream. Confirmed against the real artifact rather than locally: the
+`package` job's `verifyPackage` step passed with the check in place, and a `.deb` only
+exists on a runner here.
+
+**The README also states the gaps, not only the features.** No update notification at
+all for AppImage users (decision 7's consequence, and the one place a security release
+can go unnoticed), unsigned packages (no signing budget yet), and Linux-only. A README
+that named only what works would be the same failure mode as an untested claim.
+
 ---
 
 ## Done when
@@ -1223,3 +1255,55 @@ Every item in the spec's success criteria holds:
 - The `package` CI job builds a `.deb` and `verifyPackage` confirms `org.mercury.Browser.desktop`, `StartupWMClass=org.mercury.Browser`, and a `mercury-browser` executable.
 - The `e2e` CI job confirms `mercury://settings` renders with its settings values applied, the version banner reads `Mercury`, `mercury://` is registered as a standard and secure scheme (the switch reached the child processes' command lines), the app's state stays out of `~/.config/Min`, and no request reaches a `minbrowser.*` host.
 - Manually, on your desktop: `~/.config/Mercury` is created while `~/.config/Min` is untouched, Min and Mercury run at the same time without a singleton collision, and the task switcher groups the Mercury window under `org.mercury.Browser` with the Mercury icon.
+
+---
+
+## Review round: what the whole-branch review changed
+
+A fresh reviewer was given the range `03b139a..cbc8836` and the spec, with no
+access to the sessions that produced it, and returned "ready to merge with
+fixes": no Critical findings, four Important, and a list of Minor items. The
+Important ones were all real, and two of them were claims the sub-project had made
+about itself:
+
+- **The `.deb` advertised Min as its homepage.** `package.json` still carried
+  Min's `repository.url`, and electron-builder derives the package's `Homepage`
+  from it. An artifact named Mercury, shipped by Mercury, told every package
+  manager that its home was `github.com/minbrowser/min`. The plan said to leave
+  `repository` alone; that was a plan defect, and nothing in the pipeline read the
+  field, so it would have shipped silently. Fixed, and now checked.
+- **The README overclaimed CI.** It said all three package formats were built and
+  verified in CI; only the `.deb` is. The claim is now the accurate one.
+- **`docs/statistics.md` survived**, still describing the telemetry this fork
+  removed, and instructing the reader how to turn it off. The spec names that file
+  as repoint-or-remove. Removed.
+- **The repository's own affordances still pointed upstream.** `SECURITY.md`
+  routed vulnerability reports to Min's advisory form and to a third party's inbox;
+  `.github/FUNDING.yml` sent sponsorship to Min's author; the bug-report template
+  asked for a "Min Version". All repointed or removed (FUNDING.yml removed: this
+  project accepts no sponsorship).
+
+Minor items were ruled on individually rather than waved through:
+
+- **Accepted and fixed:** the test suite was being packaged (324 KB of specs and a
+  key fixture inside `resources/app`, with `verifyPackage` checking neither);
+  inflected and non-Latin forms of the name survived in four locales, three of
+  them in live UI; three CI jobs shared one cache key, so the Electron cache they
+  asked for was never saved; the lint gate passed vacuously if the linter was
+  missing; `ext/filterLists/minFilters.txt` kept Min's name; the `upstream` remote
+  had a push URL despite the hedge document calling it fetch-only.
+- **Rejected, with evidence:** the claim that the artifact-name regex mis-parses a
+  prerelease version. `mercury-browser-0.1.0-beta-amd64.deb` parses as version
+  `0.1.0-beta` and arch `amd64` because the version group is greedy and the arch
+  group cannot contain a dash, so it compares correctly against a `0.1.0-beta`
+  `package.json`; it was verified directly rather than argued about.
+- **Recorded, not fixed:** the reader view had no runtime coverage even though SC5
+  names it. That gap was closed rather than narrowed (the reader now has an
+  end-to-end test), because weakening a success criterion to match what was
+  verified is the failure mode this sub-project has been avoiding throughout.
+
+The reviewer also checked the central claim adversarially and could not falsify it:
+the surviving `minbrowser` references in the tree are issue-URL comments, the live
+paths point at the fork's repository, the 35 locale key sets are identical to the
+import, and the built-output check on CI greps the bundle rather than the source.
+
