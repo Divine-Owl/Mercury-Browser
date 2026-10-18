@@ -1,0 +1,15 @@
+/node_modules
+/.vscode
+/.idea
+.npm
+dist
+main.build.js
+.DS_Store
+package-lock.json
+yarn.lock
+
+# Local build state. Everything cached by a local install lives under .cache/
+# (see .npmrc and scripts/devEnv.sh) so that removing this directory removes
+# it all with nothing left in $HOME.
+/.cache/
+/.venv/

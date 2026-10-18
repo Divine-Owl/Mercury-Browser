@@ -21,7 +21,9 @@
 - Electron is bundled. `electron-builder` is **at least 26.17.0** — `desktopName` support depends on it.
 - Licence stays Apache-2.0; `LICENSE.txt` is unmodified; a `NOTICE` is added.
 - Tests run on **Node 22** via `node --test`. `npm test` remains Min's `standard` linter and must pass after every task.
-- Builds are **not** run locally. `npm run build*` and packaging run on GitHub Actions (public repo, free minutes); local work is editing, reading and running `node --test`.
+- **Local dependency state is self-contained.** `node_modules/` is project-local by default; `.npmrc` puts npm's cache in `.cache/npm` (a relative path npm resolves against this directory — verified), and `scripts/devEnv.sh` puts Electron's, electron-builder's and node-gyp's caches in `.cache/` too. Deleting the checkout leaves nothing in `$HOME`. There is no Python virtualenv: this is a Node project, and node-gyp installs no Python packages, so a venv would isolate nothing.
+- **Local builds:** `source scripts/devEnv.sh` before any `npm install` or `npm run build`.
+- **Packaging is CI-only.** This host is CachyOS/Arch with no `dpkg-deb`, `rpmbuild` or `fpm`, and about 1.3 GB RAM available, so it can build the app bundle but not the `.deb`/`.rpm`/AppImage, nor read a `.deb` back. Tasks 10–12 run on GitHub Actions (public repo, free minutes).
 
 ## Review Focus
 
@@ -40,6 +42,8 @@ Five failure modes the spec implies but that no single task's tests would otherw
 **Files:**
 - Create: the entire upstream tree at the repository root (257 tracked paths)
 - Preserve: `docs/` (the spec) — upstream has no `docs/` at the root
+- Preserve: `.gitignore`, `.npmrc` — upstream ships both, so the import overwrites them; Step 3 restores the committed versions
+- Preserve: `scripts/devEnv.sh` — no upstream file shares its name, so it needs no restoring
 
 **Interfaces:**
 - Produces: an unmodified Min v1.35.7 tree that every later task edits.
@@ -59,9 +63,24 @@ Expected: `93b4a2fcd715669ea15672d46d8e7f7f1e52bba485fa68c1f0dca8852a4561ed`. If
 tar -xzf min-1.35.7.tar.gz
 cp -a min-1.35.7/. /home/ahmadprames/Documents/AI/Mercury-Browser/
 ```
+
 `cp -a` does not remove `docs/`, and the tarball contains no `node_modules`, `dist/` or `main.build.js` (all gitignored anyway).
 
-- [ ] **Step 3: Verify the import**
+- [ ] **Step 3: Restore the repository's own `.gitignore` and `.npmrc`**
+
+**Upstream ships both files, so `cp -a` has just overwritten them.** The committed versions are the correct ones: they carry upstream's entries plus this checkout's local cache settings, which keep npm's cache and node-gyp's headers inside the checkout. Restore them:
+
+```bash
+cd /home/ahmadprames/Documents/AI/Mercury-Browser
+git checkout HEAD -- .gitignore .npmrc
+grep -q 'cache=./.cache/npm' .npmrc && echo "ok: local cache settings intact"
+grep -q 'node-linker=hoisted' .npmrc && echo "ok: upstream setting retained"
+grep -q '/node_modules' .gitignore && echo "ok: upstream ignore retained"
+```
+
+`scripts/devEnv.sh` needs no restoring — no upstream file shares its name.
+
+- [ ] **Step 4: Verify the import**
 
 ```bash
 cd /home/ahmadprames/Documents/AI/Mercury-Browser
@@ -72,7 +91,7 @@ git check-ignore -v node_modules 2>/dev/null || true
 ```
 Expected: version `1.35.7`, name `min`, and no `node_modules`/`dist` in the add set.
 
-- [ ] **Step 4: Add the read-only upstream remote**
+- [ ] **Step 5: Add the read-only upstream remote**
 
 ```bash
 git remote add upstream https://github.com/minbrowser/min
@@ -80,7 +99,7 @@ git remote -v
 ```
 `upstream` is for `git fetch` and `git diff` only. It is never merged and never pushed to.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add -A
@@ -149,14 +168,32 @@ global.localStorage = global.window.localStorage
 
 then `loadRendererModule` sets `process.env.NODE_PATH = path.join(ROOT, 'js')`, calls `require('node:module')._initPaths()`, requires the absolute path, and restores `NODE_PATH` in a `finally`.
 
-- [ ] **Step 3: Add the script and run the test — it must fail**
+- [ ] **Step 3: Install dependencies into the checkout**
+
+```bash
+source scripts/devEnv.sh
+npm install --omit=optional
+```
+
+Then confirm nothing escaped into `$HOME`:
+
+```bash
+du -sh .cache/* node_modules
+ls ~/.cache/electron 2>/dev/null && echo "LEAKED to \$HOME" || echo "ok: no ~/.cache/electron"
+```
+
+`--omit=optional` matches Min's own CI. This is the first heavy local step: expect roughly 1–1.5 GB in `node_modules` and a few hundred MB more in `.cache/`. Available RAM on this machine is about 1.3 GB, which is enough for `npm install` and `npm run build` but **not** for electron-builder — that is why packaging stays in CI (Tasks 10–12).
+
+If `~/.cache/electron` appears, `ELECTRON_CACHE` was not picked up: re-source `scripts/devEnv.sh` in the same shell that runs `npm install`.
+
+- [ ] **Step 4: Add the script and run the test — it must fail**
 
 Add to `package.json` `scripts`: `"test:unit": "node --test test/"`.
 
 Run: `npm run test:unit`
 Expected: FAIL — `name` is `'min'`, and `productName`/`desktopName` are `'Min'`/absent.
 
-- [ ] **Step 4: Set the identity in `package.json`**
+- [ ] **Step 5: Set the identity in `package.json`**
 
 ```json
 {
@@ -170,15 +207,15 @@ Expected: FAIL — `name` is `'min'`, and `productName`/`desktopName` are `'Min'
 ```
 Leave `main`, `license`, `electronVersion`, `repository`, `dependencies` and `devDependencies` (except the electron-builder bump in Task 9) alone.
 
-- [ ] **Step 5: Rebrand the version banner**
+- [ ] **Step 6: Rebrand the version banner**
 
 In `main/main.js`, the `-v`/`--version` branch prints `'Min: ' + app.getVersion()`. Change the literal to `'Mercury: '`. Leave the adjacent `'Chromium: '` line unchanged.
 
-- [ ] **Step 6: Pin the toolchain**
+- [ ] **Step 7: Pin the toolchain**
 
-Write `.nvmrc` containing `22`. `node --test` requires Node ≥ 18; the current `.nvmrc` says `15.7.0`, which cannot run the test runner, and Min's own CI already uses Node 25.
+Write `.nvmrc` containing `22`. `node --test` requires Node ≥ 18; the current `.nvmrc` says `15.7.0`, which cannot run the test runner, and Min's own CI already uses Node 25. The system Node here is 26.11.1, which runs the tests unchanged — `.nvmrc` pins CI and any nvm user, not this machine.
 
-- [ ] **Step 7: Run the test — it must pass**
+- [ ] **Step 8: Run the tests — they must pass**
 
 Run: `npm run test:unit`
 Expected: PASS — 1 test, 1 pass.
@@ -186,7 +223,7 @@ Expected: PASS — 1 test, 1 pass.
 Run: `npm test`
 Expected: PASS — the `standard` linter is clean. It lints `js/**/*.js` and `main/*.js`, so the `main/main.js` edit is covered.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add -A
@@ -722,7 +759,7 @@ This is the only check that can catch a silently wrong `desktopName` wiring, bec
 
 - [ ] **Step 1: Write the verifier**
 
-`scripts/verifyPackage.js` takes the first `.deb` matching `dist/app/mercury-browser-*.deb`, extracts it with `dpkg-deb -x` into a temporary directory, and asserts:
+`scripts/verifyPackage.js` takes the first `.deb` matching `dist/app/mercury-browser-*.deb` and extracts it **with `ar` and `tar`, not `dpkg-deb`** — a `.deb` is an `ar` archive holding `control.tar.*` and `data.tar.*`, and `ar`/`tar` are present on this host while `dpkg-deb` is not (CachyOS/Arch). It then asserts:
 
 - the artifact filename matches `mercury-browser-<version>-<arch>.deb`
 - `<tmp>/usr/share/applications/org.mercury.Browser.desktop` exists — **the exact basename is the point**
@@ -734,9 +771,11 @@ This is the only check that can catch a silently wrong `desktopName` wiring, bec
 
 On success print each assertion and exit 0; on failure print the assertion, the observed value and exit 1.
 
+The extraction is `ar x` then `tar -xf` — **no compression flags**. Verified against a real `.deb` on this host (`ar t` lists `debian-binary`, `control.tar.gz`, `data.tar.gz`) and against GNU tar 1.35, which auto-detects gzip, xz and zstd on extract. That matters because the container's compression is electron-builder's choice, not ours, and fpm commonly emits `data.tar.xz` while the sample here was `.tar.gz`. Also note the control archive's members are named `control` and `md5sums` — **not** `./control`; the `./`-prefixed form fails.
+
 - [ ] **Step 2: Document the local limitation**
 
-`dpkg-deb` is required. On a machine without it the script exits with a clear message rather than a stack trace. It is not expected to run locally — Task 11 is where it runs.
+Requires `ar` and `tar` — both verified present here. It still runs in CI (Ubuntu, which has `dpkg-deb` as well) rather than locally: this host is CachyOS/Arch with no `dpkg-deb`, `rpmbuild` or `fpm`, so it can neither build the package nor read it back with the vendor tooling. The script exits with a clear message rather than a stack trace if `ar` is missing.
 
 - [ ] **Step 3: Commit**
 
@@ -770,6 +809,8 @@ The built-output assertions in the `package` job, per spec §6:
 grep -o -w "Min" dist/localization.build.js | wc -l    # expect 0
 node -e "const d=require('decomment'),fs=require('fs');for(const f of fs.readdirSync('localization/languages')){JSON.parse(d(fs.readFileSync('localization/languages/'+f,'utf8')))};console.log('all locales parse')"
 ```
+
+Because `.npmrc` redirects npm's cache into the workspace, it now holds `${{ github.workspace }}/.cache/npm` on the runner too. That is harmless, and worth caching with `actions/cache` keyed on `hashFiles('package.json')` — the alternative is re-downloading the whole dependency tree on every run. Add it to the `package` job's cache and key it on `package.json`.
 
 - [ ] **Step 2: Update the upstream packaging workflow**
 
