@@ -5,7 +5,6 @@ const browserUI = require('browserUI.js')
 const searchEngine = require('util/searchEngine.js')
 const userscripts = require('userscripts.js')
 const settings = require('util/settings/settings.js')
-const pageTranslations = require('pageTranslations.js')
 const PasswordManagers = require('passwordManager/passwordManager.js')
 
 const remoteMenu = require('remoteMenuRenderer.js')
@@ -305,49 +304,6 @@ const webviewMenu = {
       })
       menuSections.push(scriptActions)
     }
-
-    var translateMenu = {
-      label: l('translatePage'),
-      submenu: []
-    }
-
-    const translateLangList = pageTranslations.getLanguageList()
-
-    translateLangList[0].forEach(function (language) {
-      translateMenu.submenu.push({
-        label: language.name,
-        click: function () {
-          pageTranslations.translateInto(tabs.getSelected(), language.code)
-        }
-      })
-    })
-
-    if (translateLangList[1].length > 0) {
-      translateMenu.submenu.push({
-        type: 'separator'
-      })
-      translateLangList[1].forEach(function (language) {
-        translateMenu.submenu.push({
-          label: language.name,
-          click: function () {
-            pageTranslations.translateInto(tabs.getSelected(), language.code)
-          }
-        })
-      })
-    }
-
-    translateMenu.submenu.push({
-      type: 'separator'
-    })
-
-    translateMenu.submenu.push({
-      label: 'Send Feedback',
-      click: function () {
-        browserUI.addTab(tabs.add({ url: 'https://github.com/Divine-Owl/Mercury-Browser/issues/new?title=Translation%20feedback%20for%20' + encodeURIComponent(tabs.get(tabs.getSelected()).url) }), { enterEditMode: false, openInBackground: false })
-      }
-    })
-
-    menuSections.push([translateMenu])
 
     // Electron's default menu position is sometimes wrong on Windows with a touchscreen
     // https://github.com/minbrowser/min/issues/903

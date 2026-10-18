@@ -10,7 +10,6 @@ const modules = [
   'js/preload/siteUnbreak.js',
   'js/util/settings/settingsPreload.js',
   'js/preload/passwordFill.js',
-  'js/preload/translate.js',
 ]
 
 function buildPreload() {

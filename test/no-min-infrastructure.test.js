@@ -4,7 +4,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { ROOT, readFile, sourceFiles, stripComments } = require('./helpers/repo.js')
 
-const EXCLUDED = ['pages/translateService/']
+const EXCLUDED = []
 
 test('no functional reference to a Min host remains', () => {
   for (const file of sourceFiles()) {
@@ -25,4 +25,8 @@ test('no source schedules an update check', () => {
     const code = stripComments(readFile(rel), path.extname(rel))
     assert.doesNotMatch(code, /updateNotifications/, rel)
   }
+})
+
+test('the translation service is gone', () => {
+  assert.equal(fs.existsSync(path.join(ROOT, 'pages/translateService')), false)
 })
