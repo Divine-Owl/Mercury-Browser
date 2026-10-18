@@ -717,8 +717,14 @@ The built-bundle check (`grep -o -w Min dist/localization.build.js` → `0`) run
 ### Task 8: Rebrand the remaining identity strings
 
 **Files:**
-- Modify: `index.html`, `js/browserUI.js`, `pages/places/placesService.html`, `pages/settings/settings.js`, `main/main.js`, `main/registryConfig.js`, `js/util/searchEngine.js`, `js/searchbar/bangsPlugin.js`, `js/searchbar/instantAnswerPlugin.js`
+- Modify: `index.html`, `js/browserUI.js`, `pages/places/placesService.html`, `pages/settings/settings.js`, `main/menu.js`, `main/registryConfig.js`, `main/UASwitcher.js`, `js/util/searchEngine.js`, `js/searchbar/bangsPlugin.js`, `js/searchbar/instantAnswerPlugin.js`
 - Create: `test/identity-strings.test.js`
+
+`main/main.js` is deliberately absent: it contains no `\bMin\b` at all. The About dialog's version string is in `main/menu.js`, and `main/UASwitcher.js` — the highest-risk file in this task — was missing from an earlier revision of this list. Confirm the set with:
+
+```bash
+node -e "const path=require('path');const {ROOT,readFile,sourceFiles,stripComments}=require('./test/helpers/repo.js');for(const f of sourceFiles()){const r=path.relative(ROOT,f);const c=stripComments(readFile(r),path.extname(r));const n=(c.match(/\\bMin\\b/g)||[]).length;if(n)console.log(n,r)}"
+```
 
 **Interfaces:**
 - Consumes: `test/helpers/repo.js`
@@ -742,7 +748,17 @@ test('the search-engine attribution tag is not min', () => {
     assert.doesNotMatch(readFile(rel), /[?&]t=min\b/, rel)
   }
 })
+
+test('the attribution tag is mercury', () => {
+  assert.match(readFile('js/util/searchEngine.js'), /[?&]t=mercury\b/)
+  assert.match(readFile('js/searchbar/bangsPlugin.js'), /[?&]t=mercury\b/)
+  assert.match(readFile('js/searchbar/instantAnswerPlugin.js'), /[?&]t=mercury\b/)
+})
 ```
+
+Two additions to the published snippet, both required. Assert the tag is *replaced*, not merely absent: deleting `t=min` outright satisfies the negative test while silently dropping DuckDuckGo's attribution, and no other assertion would notice.
+
+The third is functional, not textual, and it is the only guard the `UASwitcher` rename has. `test/identity-strings.test.js` stubs `app.userAgentFallback`, `settings.get`, and `process.versions.chrome` (which exists in Electron and not in Node), loads the real `main/UASwitcher.js` through `loadRendererModule`, and asserts the resulting user agent contains neither `Mercury/` nor `Electron/` while still carrying the Chrome token. Verified to bite by running the as-written and as-if-`Min` expressions side by side: the unrenamed one yields `... Gecko) Mercury/0.1.0 Chrome/120.0.0.0 Safari/537.36`, and the test fails on it.
 
 - [ ] **Step 2: Run it — it must fail**
 
@@ -755,7 +771,8 @@ Expected: FAIL, naming `index.html`.
 - `js/browserUI.js` — the window-title suffix array's `'Min'` → `'Mercury'`
 - `pages/places/placesService.html` — `<title>Min history service</title>` → `Mercury history service`
 - `pages/settings/settings.js` — `document.title = l('settingsPreferencesHeading') + ' | Min'` → `' | Mercury'`
-- `main/main.js` — the About dialog's `'Min v' + app.getVersion()` → `'Mercury v'`
+- `main/menu.js` — the About dialog's `'Min v' + app.getVersion()` → `'Mercury v'`. Not `main/main.js`: that file has no `\bMin\b` in it at all.
+- `main/UASwitcher.js` — `defaultUserAgent.replace(/Min\/\S+\s/, '')` → `/Mercury\/\S+\s/`. **This is the only functional site in the task.** Its job is to strip the app's own product token so that every site sees plain Chrome, and the token it strips *is* the product name. Leave it and Mercury leaks `Mercury/0.1.0` in the user agent of every request — precisely the fingerprinting signal the file exists to remove. A string test cannot see this: it would only observe that `/Min\/\S+\s/` changed into something, and the something it changed into is what matters. See the functional test below.
 - `main/registryConfig.js` — every Windows registry key and value: `HKCU\Software\Classes\Min` → `...\Mercury`, `Software\Clients\StartMenuInternet\Min` → `...\Mercury`, the `Min Browser Document` ProgID description, and the `Min` key/value names. Inert on Linux, but this is the Windows default-browser identity and it is cheapest to change now, while there are no users to migrate.
 - `js/util/searchEngine.js` (both `t=min`), `js/searchbar/bangsPlugin.js`, `js/searchbar/instantAnswerPlugin.js` — `t=min` → `t=mercury`. This is the attribution tag DuckDuckGo receives; leaving it would have Mercury identify itself to a third party as Min.
 

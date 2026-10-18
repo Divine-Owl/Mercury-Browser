@@ -13,8 +13,8 @@ var defaultSearchEngine = 'DuckDuckGo'
 var searchEngines = {
   DuckDuckGo: {
     name: 'DuckDuckGo',
-    searchURL: 'https://duckduckgo.com/?q=%s&t=min',
-    suggestionsURL: 'https://ac.duckduckgo.com/ac/?q=%s&type=list&t=min',
+    searchURL: 'https://duckduckgo.com/?q=%s&t=mercury',
+    suggestionsURL: 'https://ac.duckduckgo.com/ac/?q=%s&type=list&t=mercury',
     queryParam: 'q'
   },
   Google: {
