@@ -316,8 +316,13 @@ node -e "const d=require('decomment'),fs=require('fs');for(const f of fs.readdir
 grep -o -w "Min" dist/localization.build.js | wc -l
 # expected: 0
 
-# The scheme rename reached the process command line
-grep -o -- "--standard-schemes=[a-z]*" /proc/$(pgrep -f mercury-browser | head -1)/cmdline
+# The scheme rename reached the process command line.
+# Not on the main process: registerSchemesAsPrivileged appends the switch after the
+# process has started, so the main process's own /proc entry never has it. Child
+# processes inherit it, so read one of those - or, better, assert it in-process with
+# app.commandLine.getSwitchValue('standard-schemes') (see the e2e specs).
+pid=$(pgrep -f "electron.*mercury-browser" | tail -1)
+grep -o -- "--standard-schemes=[a-z]*" /proc/$pid/cmdline
 # expected: --standard-schemes=mercury
 ```
 

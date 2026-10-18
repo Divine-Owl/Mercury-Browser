@@ -1064,6 +1064,115 @@ git add -A
 git commit -m "test: runtime verification of mercury:// rendering and network isolation"
 ```
 
+**Corrections and findings, recorded after the task was executed.** Every item below
+was found by running the specs against the real app, not by reading the plan.
+
+**`playwright` cannot run these specs; the runner is `@playwright/test`.** The plan's
+`npm install -D playwright` plus `playwright test test/e2e` fails at the first
+invocation: that package's CLI offers `open`, `codegen`, `install`, `uninstall`,
+`install-deps`, `cr`, `ff`, `wk`, `screenshot`, `pdf`, `show-trace` and `trace`, and
+no `test`. `@playwright/test` installs the same `playwright` binary *plus* the runner,
+and depends on `playwright`, so the dependency is installed as `@playwright/test` and
+the direct `playwright` entry is redundant — the specs import both `test`/`expect` and
+`_electron` from it. The constraint the plan was protecting still holds and was
+checked: no browser binaries are downloaded, because in 1.64.1 that only happens via
+an explicit `playwright install`, and `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` is a no-op
+(there is no postinstall to skip).
+
+**`--standard-schemes` is not on the main process's command line, and cannot be.**
+`registerSchemesAsPrivileged` appends the switch after the process has started, so the
+main process's own `/proc/<pid>/cmdline` never contains it — the plan's assertion was
+unsatisfiable, in the plan *and* in spec §6. The assertion is kept and moved to where
+it is true: child processes inherit it, so the spec reads the pids back from the app
+(`webContents.getAllWebContents().map(wc => wc.getOSProcessId())`) rather than
+pattern-matching `/proc` for a process name. Around it are the facts that actually
+decide whether the rename worked: `app.commandLine.getSwitchValue('standard-schemes')`
+and `...('secure-schemes')` both `mercury`, `protocol.isProtocolHandled('mercury')` in
+both the default session and `persist:webcontent`, and in the renderer
+`location.origin === 'mercury://app'` with `window.isSecureContext === true`. Verified
+by mutation: deleting `secure: true` from the privileges fails the spec.
+
+**`--proxy-server` does not work — the app replaces it.** `js/util/proxy.js` calls
+`session.setProxy(proxyConfig)` for every session and again on `session-created`, and
+`proxyConfig` is `{}` (a direct connection) unless the app's own `proxy` setting is
+set. The command-line switch is therefore overridden as soon as the first session
+exists, the recorder sees nothing, and a spec asserting "no minbrowser host was seen"
+passes while proving nothing. The network spec instead seeds Mercury's own
+`settings.json` before launch with `{ proxy: { type: 1, proxyRules:
+'127.0.0.1:<port>', proxyBypassRules: '' } }`, which is both the app's real
+configuration path and the only way to observe its traffic.
+
+**The network spec got a positive control, so it cannot pass vacuously.** It first
+navigates to `http://example.com/` and waits for the recorder to log it, and only then
+asserts that no logged host matches `/minbrowser/`. Verified by mutation: injecting
+`fetch('https://minbrowser.org/probe-mutation')` into the browser UI made the spec
+fail with `["minbrowser.org"]` in the received array.
+
+**The 60-second wait is 20 seconds.** The paths that used to reach out — telemetry,
+the update feed, the first-run tour, the survey, page translation — were all
+startup- or action-triggered, and nothing left in `main/` or `js/` schedules periodic
+network work, so a minute of idling adds no coverage that the positive control does
+not already provide more convincingly.
+
+**The specs drive the UI by mouse, because synthetic keys never reach the app.**
+Min routes shortcuts through `before-input-event` in the main process (see the comment
+at the top of `js/keybindings.js`) and forwards them to the UI, but Playwright
+delivers key events straight to the renderer, so `Ctrl+T` and `Ctrl+L` do nothing
+here. The address bar is already open and focused on the empty first tab of a fresh
+launch, and afterwards it is reopened by clicking the focused tab's title — an
+ordinary DOM click, which `js/navbar/tabBar.js`'s click handler turns into
+`tabEditor.show`. That is a real user path, and it is why the spec types the *short*
+`mercury://settings` rather than loading the long URL directly: the rewrite lives in
+the UI's urlParser, so the long URL would prove nothing about the rename. The value
+check before Enter is retained; a mismatch means the app is in an unexpected state,
+not that the test was slow.
+
+**The rendering assertion was too weak, and only a mutation revealed it.** "The
+settings page has visible text and headings" still passes with the preload's origin
+guard mutated back to `min://`: the page's labels are static HTML and render whatever
+the preload does, and the failure mode being guarded against throws nothing at all.
+The spec now seeds `showDividerBetweenTabs: true` before launch and requires the
+checkbox to be *checked* on screen, because a setting *value* can only arrive through
+the guard. Re-run against the mutation, both this and the round-trip test fail.
+
+**A hermetic HOME replaces "assert the real `~/.config/Min` mtime is unchanged".**
+Each launch gets a throwaway directory with a fake `~/.config/Min` already in it, and
+the spec asserts all of the plan's branches at once: the directory exists, its mtime
+is unchanged, its seeded `settings.json` is byte-identical, and no `Singleton*` file
+appears there — while Mercury's own `SingletonLock` is present in
+`~/.config/Mercury`, which is the concrete reason it can run beside a real Min. This
+is stronger than the plan's version and also non-flaky: Min is installed and running
+on the development machine, rewriting its own mtime continuously, so the plan's
+assertion would pass in CI and fail locally, and the tempting repair would be to
+weaken it. `XDG_CONFIG_HOME` is set alongside `HOME` because it takes precedence for
+`app.getPath('appData')` — without it the assertion would be watching the wrong
+directory and could never fail.
+
+**Files beyond the plan's three.** `test/e2e/harness.js` (launch plumbing shared by
+both specs) and `playwright.config.js` (one worker, 120 s timeout, retries on CI only,
+so a retry absorbs runner flakiness in CI while a local run reports it). Spec SC5's
+other half is covered by a test for `mercury://newtab` that asserts the short form
+resolves and the view loads, with no content assertion on purpose:
+`pages/newtab/index.html` is an empty `<body>` shell — in upstream Min too, verified
+against the installed 1.35.7 copy — so "has visible text" would be false for the right
+reason. CI gains a third job, `e2e`, needing `test`, running
+`xvfb-run -a npm run test:e2e` and uploading `test-results/` on failure. It is
+separate from `package` so the two run in parallel and report independently. The
+runner has xvfb preinstalled and a real display is never needed; the harness passes
+`--no-sandbox --disable-gpu --disable-dev-shm-usage` itself. Locally the suite is 8
+tests in ~25 s, clean on three consecutive runs.
+
+**Two inherited upstream quirks were observed while driving the app and are recorded,
+not fixed here** (both are candidates for SP1, and both are in the ledger's deferred
+list). The settings tab's title and the window title each append the product name, so
+a settings window reads `Preferences | Mercury | Mercury`; upstream Min 1.35.7
+produces `Preferences | Min | Min` from the same two places
+(`pages/settings/settings.js` line 1 and `js/browserUI.js`). And the settings page
+loads `js/util/searchEngine.js`, `js/util/theme.js` and `js/util/passwordManager.js`
+as raw scripts, which call browserify-path `require('util/settings/settings.js')` and
+cannot resolve outside the bundle — three `Cannot find module` errors in the renderer
+console, byte-identical in the installed Min, with the page still functional.
+
 ---
 
 ### Task 13: Licensing, attribution and the upstream hedge
@@ -1112,5 +1221,5 @@ Every item in the spec's success criteria holds:
 
 - `npm run test:unit` passes — including the isolation, scheme and localisation tests.
 - The `package` CI job builds a `.deb` and `verifyPackage` confirms `org.mercury.Browser.desktop`, `StartupWMClass=org.mercury.Browser`, and a `mercury-browser` executable.
-- The `e2e` CI job confirms `mercury://settings` renders, the version banner reads `Mercury`, `--standard-schemes=mercury` is on the command line, and no request reaches a `minbrowser.*` host.
+- The `e2e` CI job confirms `mercury://settings` renders with its settings values applied, the version banner reads `Mercury`, `mercury://` is registered as a standard and secure scheme (the switch reached the child processes' command lines), the app's state stays out of `~/.config/Min`, and no request reaches a `minbrowser.*` host.
 - Manually, on your desktop: `~/.config/Mercury` is created while `~/.config/Min` is untouched, Min and Mercury run at the same time without a singleton collision, and the task switcher groups the Mercury window under `org.mercury.Browser` with the Mercury icon.

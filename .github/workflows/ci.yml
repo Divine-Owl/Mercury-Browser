@@ -111,3 +111,54 @@ jobs:
       # desktop environment associates with the window.
       - name: Verify the packaged .deb
         run: npm run verifyPackage
+
+  e2e:
+    name: Runtime (xvfb)
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Cache the npm and Electron download caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/npm
+            ~/.cache/electron
+          key: npm-${{ runner.os }}-${{ hashFiles('package.json') }}
+          restore-keys: npm-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm install --omit=optional
+
+      # The specs launch the built app, not the sources: package.json's main is
+      # main.build.js, and the preload the settings page depends on is concatenated
+      # into dist/preload.js.
+      - name: Build
+        run: npm run build
+
+      # These are the assertions no amount of source reading can make. A preload
+      # whose origin guard still says min:// renders a blank settings page and
+      # throws nothing; the app can write into the wrong profile while working
+      # perfectly. Both were verified against mutations of the real code.
+      #
+      # xvfb is what makes a GPU-less runner able to open a Chromium window at all,
+      # and the specs add --no-sandbox --disable-gpu --disable-dev-shm-usage
+      # themselves. A real display is not needed for anything else here.
+      - name: Runtime verification
+        run: xvfb-run -a npm run test:e2e
+
+      # Playwright's failure artifacts are the only way to see what a failed run
+      # looked like, and on a runner that is otherwise invisible.
+      - name: Keep the failure output
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failure
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
