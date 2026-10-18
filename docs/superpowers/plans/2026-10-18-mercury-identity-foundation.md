@@ -20,8 +20,11 @@
 - Page translation is removed in v0.1.
 - Electron is bundled. `electron-builder` is **at least 26.17.0** — `desktopName` support depends on it.
 - Licence stays Apache-2.0; `LICENSE.txt` is unmodified; a `NOTICE` is added.
-- Tests run on **Node 22** via `node --test`. `npm test` remains Min's `standard` linter and must pass after every task.
+- Tests run on **Node 22** via `node --test`. The lint gate is **`npm run test:lint`**, *not* `npm test`.
+- **Why the lint gate is a baseline diff.** Min v1.35.7 does not lint clean, and never did: `standard` 14.3.4 reports **643 errors** across `js/` and `main/` on the imported tree (336 and 307), it cannot even parse `main/main.js` — that file has a top-level `return` at line 85, legal only once browserify has wrapped it — and upstream CI never ran the linter at all, so the debt was never paid down. Fixing 643 unrelated errors is not this sub-project's work, but dropping the linter would drop the one thing it is genuinely good for here: catching variables and imports orphaned by the large deletions these tasks perform. So `scripts/lintBaseline.js` records the per-file error count in `test/fixtures/lint-baseline.json` and fails only when a file's count **grows**. Line numbers are deliberately not compared, since every task shifts the lines of the errors above its own edit. `npm test` remains available and is informational only — it exits non-zero on the untouched import too.
 - **Local dependency state is self-contained.** `node_modules/` is project-local by default; `.npmrc` puts npm's cache in `.cache/npm` (a relative path npm resolves against this directory — verified), and `scripts/devEnv.sh` puts Electron's, electron-builder's and node-gyp's caches in `.cache/` too. Deleting the checkout leaves nothing in `$HOME`. There is no Python virtualenv: this is a Node project, and node-gyp installs no Python packages, so a venv would isolate nothing.
+- **`.npmrc` must keep `allow-git=root`.** Min depends on `dragula@github:minbrowser/dragula`, and npm ≥ 11 aborts the entire install with `EALLOWGIT` without it — locally only, since npm 10 (Node 22, CI) permits git dependencies by default. Do not "clean up" the key as unrecognised; it is what makes a local install possible.
+- **Electron's download cache is `electron_config_cache`, not `ELECTRON_CACHE`.** `@electron/get` ignores the latter and falls back to `~/.cache/electron`.
 - **Local builds:** `source scripts/devEnv.sh` before any `npm install` or `npm run build`.
 - **Packaging is CI-only.** This host is CachyOS/Arch with no `dpkg-deb`, `rpmbuild` or `fpm`, and about 1.3 GB RAM available, so it can build the app bundle but not the `.deb`/`.rpm`/AppImage, nor read a `.deb` back. Tasks 10–12 run on GitHub Actions (public repo, free minutes).
 
@@ -116,8 +119,8 @@ Licence: Apache-2.0"
 ### Task 2: Test harness and package identity
 
 **Files:**
-- Create: `test/helpers/repo.js`, `test/helpers/renderer.js`, `test/identity.test.js`
-- Modify: `package.json`, `main/main.js`, `.nvmrc`
+- Create: `test/helpers/repo.js`, `test/helpers/renderer.js`, `test/identity.test.js`, `scripts/lintBaseline.js`, `test/fixtures/lint-baseline.json`
+- Modify: `package.json`, `main/main.js`, `.nvmrc`, `.npmrc`
 
 **Interfaces:**
 - Produces: `test/helpers/repo.js` exporting
@@ -126,6 +129,7 @@ Licence: Apache-2.0"
   - `sourceFiles(): string[]` — absolute paths of every `.js`, `.html`, `.css` under `js/`, `main/`, `pages/`, `reader/` plus the root `index.html`, excluding `node_modules`, `dist`, `localization/languages`, and `ext/`
   - `stripComments(text: string, ext: string): string` — `decomment` for `.js`, `/* */` and `<!-- -->` removal for `.css`/`.html`
 - Produces: `test/helpers/renderer.js` exporting `loadRendererModule(rel: string): any` — installs the `window`, `ipc` and `localStorage` globals the renderer modules read at load time, sets `NODE_PATH` to `<ROOT>/js` so browserify-style bare specifiers like `util/searchEngine.js` resolve, restores both on exit.
+- Produces: npm script `test:lint` = `node scripts/lintBaseline.js` — fails when any file's `standard` error count grows past `test/fixtures/lint-baseline.json`. See Global Constraints for why the linter is a baseline diff rather than a pass/fail gate.
 - Produces: npm script `test:unit` = `node --test "test/*.test.js"` — a quoted glob, not a directory argument. Measured on Node 22.23.3 (the version `.nvmrc` and CI pin): `node --test test/` treats `test/` as a module path and fails the entire run with `MODULE_NOT_FOUND`, while a bare `node --test` executes **every** file under `test/`, including `test/helpers/` and — once Task 12 adds them — the Playwright specs and proxy helper in `test/e2e/`. The quoted glob is the only form measured to work on both Node 22 and Node 26 while restricting the run to the unit tests.
 
 - [ ] **Step 1: Write the failing test**
@@ -182,9 +186,14 @@ du -sh .cache/* node_modules
 ls ~/.cache/electron 2>/dev/null && echo "LEAKED to \$HOME" || echo "ok: no ~/.cache/electron"
 ```
 
-`--omit=optional` matches Min's own CI. This is the first heavy local step: expect roughly 1–1.5 GB in `node_modules` and a few hundred MB more in `.cache/`. Available RAM on this machine is about 1.3 GB, which is enough for `npm install` and `npm run build` but **not** for electron-builder — that is why packaging stays in CI (Tasks 10–12).
+`--omit=optional` matches Min's own CI. This is the first heavy local step. Measured here: `node_modules` 684 MB, `.cache/npm` 231 MB, `.cache/electron` 120 MB, for about 1 GB in total rather than the 1.5 GB this step originally guessed. Available RAM is about 1.3 GB, which is enough for `npm install` and `npm run build` but **not** for electron-builder — that is why packaging stays in CI (Tasks 10–12).
 
-If `~/.cache/electron` appears, `ELECTRON_CACHE` was not picked up: re-source `scripts/devEnv.sh` in the same shell that runs `npm install`.
+Two things had to be discovered by running it, and both are now fixed rather than worked around:
+
+- **npm 12 refuses git dependencies.** Min declares one — `dragula@github:minbrowser/dragula`, a fork rather than the published package — and npm 12 fails the whole install with `EALLOWGIT ... Fetching packages of type "git" have been disabled`. npm 10, which Node 22 ships, has no such restriction, so **CI would have passed while every local install on npm ≥ 11 failed**. `.npmrc` now sets `allow-git=root` (the least permissive value; the fork is a direct dependency, so nothing transitive needs it). npm 10 treats the unknown key as a warning, which this `.npmrc` already produces for upstream's `node-linker`.
+- **`ELECTRON_CACHE` does not exist.** `@electron/get`'s `Cache` derives its root from `env-paths('electron').cache`, i.e. `~/.cache/electron`, and ignores that variable. What actually works is `electron_config_cache`, read by `node_modules/electron/install.js` as `cacheRoot: process.env.electron_config_cache`. With the wrong name the install silently drops 120 MB into `$HOME`; `scripts/devEnv.sh` now exports the right one.
+
+If `~/.cache/electron` reappears, the variable was not picked up: re-source `scripts/devEnv.sh` in the same shell that runs `npm install`, then move the stray directory with `mv ~/.cache/electron/* .cache/electron/` so the next install reuses it instead of re-downloading.
 
 - [ ] **Step 4: Add the script and run the test — it must fail**
 
@@ -227,15 +236,47 @@ Write `.nvmrc` containing `22`. `node --test` requires Node ≥ 18; the current 
 
 This local/CI divergence is not academic: it is exactly how the `test:unit` form broke. The plan originally read `node --test test/`, which passes here on Node 26 and fails outright on the pinned Node 22. Every test command in this plan was therefore re-measured on Node 22.23.3 before being written down; a Node 22 binary sits at `/tmp/opencode/node22/bin/node` for re-checking. When a step's output is version-sensitive, run it through that binary as well.
 
-- [ ] **Step 8: Run the tests — they must pass**
+- [ ] **Step 8: Add the lint gate and record its baseline**
+
+`standard` cannot be a pass/fail gate on this tree (see Global Constraints for the measurements). `scripts/lintBaseline.js` is its replacement:
+
+- it runs `standard` over the same two patterns upstream's `npm test` uses, `js/**/*.js` and `main/*.js`;
+- it parses `<file>:<line>:<col>: <message>` lines into a per-file error count;
+- with `--write-baseline` it records those counts in `test/fixtures/lint-baseline.json`;
+- otherwise it fails only when a file's count exceeds the recorded one, printing that file's errors. Line and column are deliberately dropped from the comparison, because every task shifts the lines of the errors above its own edit.
+
+Add `"test:lint": "node scripts/lintBaseline.js"` to `package.json` scripts, then record the baseline:
+
+```bash
+node scripts/lintBaseline.js --write-baseline   # 73 files, 643 errors
+node scripts/lintBaseline.js                    # PASS: no new errors
+```
+
+- [ ] **Step 9: Prove the lint gate can fail**
+
+A gate nobody has watched fail is not a gate. Inject an orphaned variable, watch the gate catch it, then revert:
+
+```bash
+printf '\nconst orphanedByDeletion = 1\n' >> js/readerView.js
+node scripts/lintBaseline.js   # FAIL: js/readerView.js: 1 -> 2
+git checkout -- js/readerView.js
+node scripts/lintBaseline.js   # PASS again
+```
+
+Expected: exit 1 reporting `js/readerView.js: 1 -> 2` and `'orphanedByDeletion' is assigned a value but never used`, then exit 0 after the revert. This is the check that catches a variable or import orphaned by a deletion in any later task.
+
+- [ ] **Step 10: Run the tests — they must pass**
 
 Run: `npm run test:unit`
 Expected: PASS — 1 test, 1 pass.
 
-Run: `npm test`
-Expected: PASS — the `standard` linter is clean. It lints `js/**/*.js` and `main/*.js`, so the `main/main.js` edit is covered.
+Run: `npm run test:lint`
+Expected: PASS — `lint: no new errors (643 total, baseline 643); 73 files recorded`.
 
-- [ ] **Step 9: Commit**
+Run: `npm test`
+Expected: **FAIL**, exit 1, 643 errors — the untouched upstream state, not something this task caused. Informational only; the gate above is what is enforced. This task's `main/main.js` edit is a string literal, so it changes no count.
+
+- [ ] **Step 11: Commit**
 
 ```bash
 git add -A
@@ -276,7 +317,12 @@ test('no source references telemetry', () => {
   for (const file of sourceFiles()) {
     const ext = path.extname(file)
     const code = stripComments(readFile(path.relative(ROOT, file)), ext)
-    assert.doesNotMatch(code, /services\.minbrowser\.org/, file)
+    // Scoped to the telemetry endpoint, not the whole minbrowser.org host:
+    // pages/translateService/translateService.js legitimately references
+    // services.minbrowser.org/bergamot-models-v1 three times and is not
+    // removed until Task 5. The broader whole-host check is Task 4's job,
+    // which excludes that directory until Task 5 tightens it.
+    assert.doesNotMatch(code, /services\.minbrowser\.org\/stats/, file)
     assert.doesNotMatch(code, /collectUsageStats/, file)
   }
 })
@@ -314,8 +360,8 @@ Locale keys (including `settingsUsageStatisticsToggle`) are **frozen**: leave th
 Run: `npm run test:unit`
 Expected: PASS.
 
-Run: `npm test`
-Expected: PASS. `standard` fails on unused variables, so it catches any local left behind by the removals.
+Run: `npm run test:lint`
+Expected: PASS — `lint: no new errors`. `standard`'s unused-variable rule is what catches a local left behind by these removals, and the gate reports any such *new* error even though the tree as a whole does not lint clean. (`npm test` exits non-zero here on the untouched tree; it is informational only.)
 
 - [ ] **Step 6: Commit**
 
@@ -330,7 +376,7 @@ git commit -m "feat: remove usage statistics collection, setting and toggle"
 
 **Files:**
 - Delete: `js/searchbar/updateNotifications.js`
-- Modify: `js/sessionRestore.js`, `main/main.js`, `js/webviewMenu.js`, `js/navbar/contentBlockingToggle.js`, `pages/settings/index.html`
+- Modify: `js/sessionRestore.js`, `main/main.js`, `main/menu.js`, `js/webviewMenu.js`, `js/navbar/contentBlockingToggle.js`, `pages/settings/index.html`
 - Create: `test/no-min-infrastructure.test.js`
 
 **Interfaces:**
@@ -387,7 +433,9 @@ In `main/main.js`, `crashReporter.start({ submitURL: ..., uploadToServer: false,
 
 - [ ] **Step 6: Repoint the Help menu and support links**
 
-In `main/main.js` the Help menu opens four Min URLs. Replace: keyboard-shortcuts wiki → drop the item (no wiki exists); new-issue → `https://github.com/Divine-Owl/Mercury-Browser/issues/new`; tour → drop the item; project site → `https://github.com/Divine-Owl/Mercury-Browser`.
+In `main/menu.js` the Help menu opens four Min URLs — **not `main/main.js`**, which holds only the crash-reporter URL that Step 5 handles. Replace: keyboard-shortcuts wiki → drop the item (no wiki exists); new-issue → `https://github.com/Divine-Owl/Mercury-Browser/issues/new`; tour → drop the item; project site → `https://github.com/Divine-Owl/Mercury-Browser`.
+
+Only the tour item at `main/menu.js` makes this task's test fail: it is the one reference matching `minbrowser\.(org|github\.io)` (the other three are `github.com/minbrowser/min`, which the pattern deliberately does not match). The other edits here are housekeeping, and the test does not enforce them.
 
 In `js/webviewMenu.js` ("report a translation problem") and `js/navbar/contentBlockingToggle.js` ("report a content-blocking problem"), repoint `github.com/minbrowser/min/issues/new...` to `github.com/Divine-Owl/Mercury-Browser/issues/new...`, preserving the query-string title and body.
 
@@ -449,7 +497,7 @@ Locale keys (`translatePage` and friends) stay: keys are frozen.
 - [ ] **Step 4: Run the tests — they must pass**
 
 Run: `npm run test:unit`
-Expected: PASS. Then `npm test` — PASS. `standard` will flag anything the deletions orphaned.
+Expected: PASS. Then `npm run test:lint` — PASS, which is what flags anything the deletions orphaned.
 
 - [ ] **Step 5: Commit**
 
@@ -541,7 +589,7 @@ Two sites are easy to miss and both are load-bearing:
 - [ ] **Step 4: Run the tests — they must pass**
 
 Run: `npm run test:unit`
-Expected: PASS. Then `npm test` — PASS.
+Expected: PASS. Then `npm run test:lint` — PASS.
 
 - [ ] **Step 5: Commit**
 
@@ -685,7 +733,7 @@ Expected: FAIL, naming `index.html`.
 - [ ] **Step 4: Run the tests — they must pass**
 
 Run: `npm run test:unit`
-Expected: PASS. Then `npm test` — PASS.
+Expected: PASS. Then `npm run test:lint` — PASS.
 
 - [ ] **Step 5: Commit**
 
@@ -812,7 +860,7 @@ git commit -m "test: verify packaged desktop file, app id and executable name"
 
 `.github/workflows/ci.yml`, triggered on `push` to `main`, `pull_request`, and `workflow_dispatch`:
 
-- job `test` on `ubuntu-latest`, Node 22: `npm install --omit=optional`, `npm test` (the `standard` linter), `npm run test:unit`
+- job `test` on `ubuntu-latest`, Node 22: `npm install --omit=optional`, `npm run test:lint` (no new lint errors — a baseline diff, not `npm test`; see Global Constraints), `npm run test:unit`
 - job `package` on `ubuntu-latest`, Node 22, `needs: test`: `npm install --omit=optional`, `npm run build`, then the spec §6 built-output assertions, then `npm run buildDebian`, then `npm run verifyPackage`
 
 The built-output assertions in the `package` job, per spec §6:
@@ -924,7 +972,7 @@ Note in the file that Apache-2.0 §4(b) asks for prominent notices on **modified
 
 - [ ] **Step 3: Rewrite the README**
 
-Replace Min's README entirely: what Mercury is, that it is a fork of Min v1.35.7 under Apache-2.0, that it collects **no** usage statistics, how to build (`npm install && npm run build`), how to package (`npm run buildDebian` / `buildAppImage` / `buildRedhat`), how to run the tests (`npm test`, `npm run test:unit`, `npm run test:e2e`), the attribution to Min, and a pointer to `docs/superpowers/specs/` for design decisions. Remove Min's donation, download and community links.
+Replace Min's README entirely: what Mercury is, that it is a fork of Min v1.35.7 under Apache-2.0, that it collects **no** usage statistics, how to build (`npm install && npm run build`), how to package (`npm run buildDebian` / `buildAppImage` / `buildRedhat`), how to run the tests (`npm run test:unit`, `npm run test:lint`, `npm run test:e2e`; note that upstream's `npm test` reports 643 long-standing lint errors and is informational only), the attribution to Min, and a pointer to `docs/superpowers/specs/` for design decisions. Remove Min's donation, download and community links.
 
 - [ ] **Step 4: Write the hedge procedure**
 
