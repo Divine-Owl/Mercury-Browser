@@ -35,7 +35,7 @@ Not in M1, deliberately: strip scrolling/drag/keep-in-view and the overview (M2)
 
 - **Electron 43.4.1**, pinned in `package.json`. Do not upgrade it in this plan.
 - **Four build inputs, one rule each.** `main.build.js` is a *concatenation* (`scripts/buildMain.js` — new main modules go in its list); the UI page is browserify (`scripts/buildBrowser.js` — it follows `require`s, nothing to register); the tab preload is a concatenation (`scripts/buildPreload.js` — new preload modules go in its list); the chrome page gets a new browserify entry `scripts/buildChrome.js`, added to the `build` script chain in `package.json` and to `scripts/watch.js`. Shared modules that both a concatenated bundle and a browserify bundle need carry the `typeof module` guard (precedent: `js/util/theme.js`).
-- **Lint gate:** `npm run test:lint` compares per-file error counts to `test/fixtures/lint-baseline.json` and fails when a file's count *grows*. New files are therefore held at 0: write `standard`-clean JavaScript — 2-space indent, no semicolons, single quotes, `var` in UI/main files where the neighbours use it.
+- **Lint gate:** `npm run test:lint` compares per-file error counts to `test/fixtures/lint-baseline.json` and fails when a file's count *grows*. New files are therefore held at 0: write `standard`-clean JavaScript — 2-space indent, no semicolons, single quotes, `var` in UI/main files where the neighbours use it. Main and preload files are concatenated, so a neighbour's `var` is a global at run time but undefined to `standard`: a new file names what it uses in a `/* global … */` comment (`js/places/*` is the precedent) or declares it locally with `require`. Copying an existing main file's bare `ipc`/`windows` is exactly what its baseline errors are — do not.
 - **Locale keys are frozen.** `test/localization.test.js` asserts every locale's key set against `test/fixtures/localization-keys.json`. Never remove or rename a key (`settingsSeparateTitlebarToggle` stays in the locales, unused). New strings are added to `localization/languages/en-US.json` **only** — `l()` falls back to en-US for every other language — and the fixture is regenerated in the same commit with:
   `node -e "const {localeKeySets}=require('./test/helpers/locales.js');require('fs').writeFileSync('test/fixtures/localization-keys.json', JSON.stringify(localeKeySets(),null,2)+'\n')"`
 - **Unit tests are pure and DOM-free** (`node --test "test/*.test.js"`): geometry, clamps, validation — the spec's §7 list.
@@ -184,7 +184,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: transparent;
           right: var(--island-gap); height: var(--island-h); display: flex; align-items: center;
           gap: 8px; padding: 0 8px; background: var(--island-bg); border-radius: var(--island-radius);
           box-shadow: var(--island-shadow); -webkit-app-region: drag; }
-#island.hidden { display: none; }
+#island[hidden] { display: none; }   /* the attribute, not a class: #island{display:flex} beats the UA's [hidden] rule */
 #island .pill, #island button, #island input { -webkit-app-region: no-drag; }
 ```
 
@@ -283,7 +283,7 @@ const cdp         = (app, url, commands) => inMain(app, …) // attach wc.debugg
 const pixels      = (app, url, points) => inMain(app, …)  // capturePage() → toBitmap() → [{x,y,r,g,b,a}] at the given points
 ```
 
-`launchApp`'s window finder changes from `page.url().startsWith('mercury://app/')` to `page.url() === UI_URL` — leaving it as a prefix match would let the chrome layer satisfy it if Playwright ever exposes `WebContentsView` pages (the floor of SC11).
+`launchApp`'s window finder changes from `page.url().startsWith('mercury://app/')` to `page.url() === UI_URL` — leaving it as a prefix match would let the chrome layer satisfy it if Playwright ever exposes `WebContentsView` pages (the floor of SC11). Every main-side helper that needs "the window" must find the **browser** window structurally (the one whose `contentView.children` include the UI page): `BaseWindow.getAllWindows()` also holds the app's hidden history-service window on every run, so index-0 lookups are wrong from here on.
 
 - [ ] **Step 1: Write the failing e2e spec** (`test/e2e/chrome.spec.js`, new `test` block): after `launchApp` plus one navigation (drive it through the old editor for now — Task 6 rewrites the helper), assert: the chrome layer exists with bounds `{x: 0, y: 0, width: contentWidth, height: 12}`; it is the **last** child of the window's contentView (above the tab view); the chrome page's `#frame` is present and its computed `height` is `12px`; and the **corner pixels**: from the layer's `capturePage()`, `(0,0)` has alpha 0, `(12,12)` is the frame background, `(25, 0)` is frame background — the spike's 0/12/25 probe.
 - [ ] **Step 2: Run it and watch it fail:** `npx playwright test test/e2e/chrome.spec.js`.
@@ -428,7 +428,7 @@ var strip = {
 }
 ```
 
-Click only in M1 — middle-click close, right-click menu, wheel scroll and drag scrolling are M2 (§5); do not build them.
+Click only in M1 — middle-click close, right-click menu, wheel scroll and drag scrolling are M2 (§5); do not build them. **The hit box, not the drawing, is the target:** §4.3 says a pill's hit box is the frame's full height, so the pill element fills the row (`height: 100%`) and an inner element (or `::before`) draws the 4 px bar — Task 2 shipped the drawing height on the element itself, which leaves a 4 px target and is wrong. Assert it: the pill's `getBoundingClientRect().height` equals the strip's.
 
 Harness: `const newTab = app => inMain(app, …)` which sends `'addTab'` to the UI page's webContents — **exactly the message the application menu's New Tab item sends** (`main/menu.js:26`), because a native menu cannot be clicked by a test. Comment that provenance at the definition.
 
@@ -539,7 +539,7 @@ Window state pushes: in `main/main.js`, on `newWin.on('maximize'|'unmaximize')` 
 
 `js/chromeBridge.js` extends `publishNavState` to be the single publisher of `chrome-nav-state`, and re-publishes it after every navigation action.
 
-- [ ] **Step 1: Add failing e2e cases:** on a fresh window, back and forward are `disabled`; after `enterUrl` to the settings page and a second navigation, back is enabled and clicking it returns the tab view to the first URL; the maximize button makes `win.isMaximized()` true and the button's label becomes restore; clicking `#minimize-button` makes `win.isMinimized()` true; clicking `#close-button` leaves `BaseWindow.getAllWindows()` empty; clicking `#menu-button` is observed in main (a test listener on `ipcMain.once('showSecondaryMenu')` added *before* the click) and then dismissed by clicking the page, because a popped-up native menu would eat the next CDP input.
+- [ ] **Step 1: Add failing e2e cases:** on a fresh window, back and forward are `disabled`; after `enterUrl` to the settings page and a second navigation, back is enabled and clicking it returns the tab view to the first URL; the maximize button makes `win.isMaximized()` true and the button's label becomes restore; clicking `#minimize-button` makes `win.isMinimized()` true; clicking `#close-button` destroys the **browser** window — asserted as "no window whose children include the UI page survives", not "no windows at all", because the app's hidden history-service window is in `BaseWindow.getAllWindows()` on every run (Task 1's report); clicking `#menu-button` is observed in main (a test listener on `ipcMain.once('showSecondaryMenu')` added *before* the click) and then dismissed by clicking the page, because a popped-up native menu would eat the next CDP input.
 - [ ] **Step 2: Run and watch fail.**
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Suites.**
@@ -608,7 +608,7 @@ settings.listen('darkThemeIsActive', pushPageStyle)
 function pushPageStyle () { forEachView(function (view) { view.webContents.send('pageStyle', pageStyle()) }) }
 ```
 
-The preload's `pageStyleRequest` on `DOMContentLoaded` is what covers views created after a push — a new tab asks when its document loads, which is why no per-view hook in `viewManager` is needed. The layer's own page needs the two colours too (`--frame-bg`, `--hairline` arrive with `chrome-tokens` in Task 3; nothing new here).
+The preload's `pageStyleRequest` on `DOMContentLoaded` is what covers views created after a push — a new tab asks when its document loads, which is why no per-view hook in `viewManager` is needed. The **chrome layer** needs the radius too, and this is the task that notices: the frame's hairline is inset by `--r-page` so it meets the page's arc (§4.7), and with `--r-page` frozen at its default the gap stays 20 px when the setting says 0 or 100. So `pushPageStyle` also sends the chrome layer a token refresh carrying the clamped radius (`send(win, 'chrome-tokens', { dark, tokens: withRadius })`), which is the same path a theme will use in M4.
 
 The settings page: a new section after the tabs section —
 
