@@ -17,6 +17,11 @@
 
 const CHROME_PAGE_URL = 'mercury://app/pages/chrome/index.html'
 
+/* How long after a retract starts the box is allowed to shrink: the animation's
+   own duration (§4.12's motionRetract) plus a frame of slack, so the box is
+   never the thing that ends the animation. */
+const RETRACT_MARGIN = 50
+
 /* Per-window chrome state, kept out of windows.getState() so the window manager
    does not have to know this module exists. A WeakMap because a window's entry
    must not outlive the window. */
@@ -43,7 +48,7 @@ const chromeLayer = {
     const bounds = win.getContentBounds()
     view.setBounds({ x: 0, y: 0, width: bounds.width, height: chromeTokens.frameHeight })
 
-    chromeLayers.set(win, { view, state: 'closed', tabs: null })
+    chromeLayers.set(win, { view, state: 'closed', tabs: null, shrinkTimer: null })
     win.contentView.addChildView(view)
 
     // the layer is per-window: the window's death is its death, and nothing else
@@ -68,6 +73,7 @@ const chromeLayer = {
     if (!layer) {
       return
     }
+    clearTimeout(layer.shrinkTimer)
     chromeLayers.delete(win)
     if (!layer.view.webContents.isDestroyed()) {
       layer.view.webContents.destroy()
@@ -111,20 +117,40 @@ const chromeLayer = {
       return
     }
     layer.state = state
-    chromeLayer.updateGeometry(win)
+    clearTimeout(layer.shrinkTimer)
+    layer.shrinkTimer = null
+
+    /* The page hears the new state at once: the island's motion starts with the
+       class main's message sets, not with the box. The box grows at once and
+       shrinks only after the retract has run (§4.12's motionRetract), because
+       the island draws its way out *inside* the box - a box that closed first
+       would cut the animation off at its edge. */
+    if (state === 'closed') {
+      chromeLayer.updateGeometry(win, false)
+      layer.shrinkTimer = setTimeout(function () {
+        layer.shrinkTimer = null
+        chromeLayer.updateGeometry(win)
+      }, chromeTokens.motionRetract + RETRACT_MARGIN)
+    } else {
+      chromeLayer.updateGeometry(win)
+    }
   },
 
-  /* The one place the layer's bounds are computed. Every caller is a resize, a
-     state change, or the page's own handshake - never the page's layout. */
-  updateGeometry: function (win) {
+  /* The one place the layer's bounds are computed, and the one place the page is
+     told which state it is in. Every caller is a resize, a state change, or the
+     page's own handshake - never the page's layout. resize: false announces the
+     new state without moving the box. */
+  updateGeometry: function (win, resize) {
     const layer = chromeLayers.get(win)
     if (!layer || layer.view.webContents.isDestroyed()) {
       return
     }
 
     const height = chromeTokens.boxHeight(layer.state)
-    const bounds = win.getContentBounds()
-    layer.view.setBounds({ x: 0, y: 0, width: bounds.width, height: height })
+    if (resize !== false) {
+      const bounds = win.getContentBounds()
+      layer.view.setBounds({ x: 0, y: 0, width: bounds.width, height: height })
+    }
 
     chromeLayer.send(win, 'chrome-geom', { state: layer.state, boxH: height })
   },

@@ -7,7 +7,9 @@
    element in one row in either state.
 
    Geometry belongs to main: setGeom() is handed a state main has already decided
-   and sized the layer for, and it makes the page agree. */
+   and sized the layer for, and it makes the page agree. The state class is the
+   only switch: the island's closed state is the stylesheet's default, so a
+   reveal is a class change the island can animate out of. */
 
 var frame = {
   el: document.getElementById('frame'),
@@ -28,9 +30,10 @@ var frame = {
       frame.el.appendChild(frame.strip)
     }
 
-    /* The attribute, not a class: the stylesheet spells out #island[hidden], so
-       this is the one switch that decides whether the island paints. */
-    frame.island.hidden = state !== 'open'
+    /* Nothing to hide here: the island's closed state is the stylesheet's own
+       default (no paint, no pointer, no focus), and body.ct-open above is what
+       drops it in. The class is also the strip's home, so one switch describes
+       both, and the island can animate while main keeps the box tall. */
   }
 }
 

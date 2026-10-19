@@ -101,28 +101,61 @@ body {
 /* The island, in full width minus the gap on each side in M1: the spec does not
    fix its width, and M3 refines it. It is as tall as the token says and starts
    one --island-gap below the frame, which is the geometry boxHeight('open')
-   sizes the layer for. */
+   sizes the layer for.
+
+   It is a **lifted surface**: its own background, a 1 px --island-border and
+   --island-shadow are what separate it from the frame behind it, and its radius
+   is the token table's capsule rule. box-sizing keeps the border inside the
+   height the box was sized for, so a border is not a pixel of overflow. */
 #island {
   position: absolute;
   top: calc(var(--strip-h) + var(--island-gap));
   left: var(--island-gap);
   right: var(--island-gap);
   height: var(--island-h);
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 0 8px;
   background: var(--island-bg);
+  border: 1px solid var(--island-border);
   border-radius: var(--island-radius);
   box-shadow: var(--island-shadow);
   -webkit-app-region: drag;
+
+  /* Closed is this element's resting state, not its absence: gone from the page
+     (no paint, no pointer, no focus) at the size it drops in from. Main keeps the
+     layer tall for the retract anyway (§4.12), which is why the closed state has
+     to be drawable-out: visibility, not display. */
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(.98, .6);
+  transform-origin: 50% 0;
+  pointer-events: none;
+  transition: opacity var(--t-retract) var(--ease-retract),
+    transform var(--t-retract) var(--ease-retract),
+    visibility 0s linear var(--t-retract);
 }
 
-/* The attribute frame.setGeom() toggles. display: flex above would otherwise
-   beat the user agent's own [hidden] rule, and the island would paint while
-   closed. */
-#island[hidden] {
-  display: none;
+/* The open state, on the same class frame.setGeom() uses to give the strip its
+   home: the row and the surface under it never disagree. */
+body.ct-open #island {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  pointer-events: auto;
+  transition: opacity var(--t-reveal) var(--ease-reveal),
+    transform var(--t-reveal) var(--ease-reveal),
+    visibility 0s;
+}
+
+/* §4.12: prefers-reduced-motion turns the motion off, all of it. */
+@media (prefers-reduced-motion: reduce) {
+  #island,
+  body.ct-open #island {
+    transition: none;
+  }
 }
 
 /* Everything interactive in the island is no-drag, as in the frame's pills: a

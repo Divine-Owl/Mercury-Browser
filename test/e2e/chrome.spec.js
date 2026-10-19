@@ -140,7 +140,9 @@ test.describe('the chrome layer', () => {
     expect(await chromeDom(ctx.app, 'getComputedStyle(document.getElementById("frame")).height')).toBe('12px')
     expect(paint.radius).toBe('12px') // --r-window, the window's own corner
     expect(await chromeDom(ctx.app, 'document.body.classList.contains("ct-closed")')).toBe(true)
-    expect(await chromeDom(ctx.app, 'document.getElementById("island").hidden')).toBe(true)
+    // the island's closed state: out of the page, not merely un-drawn, so it can
+    // drop in when body.ct-open arrives instead of appearing (§4.12)
+    expect(await chromeDom(ctx.app, 'getComputedStyle(document.getElementById("island")).visibility')).toBe('hidden')
   })
 
   test('repaints when the theme setting changes', async () => {
@@ -215,12 +217,12 @@ test.describe('the island reveals', () => {
 
   // The layer's height and the page's own account of the state it was told to
   // show. Both halves matter: a height without the class would be a box that is
-  // 77 px tall and painting the closed chrome.
+  // 79 px tall and painting the closed chrome.
   const chromeBox = async app => {
     const facts = await layerFacts(app)
     const dom = await chromeDom(app, `({
       open: document.body.classList.contains('ct-open'),
-      islandHidden: document.getElementById('island').hidden
+      islandVisible: getComputedStyle(document.getElementById('island')).visibility === 'visible'
     })`)
     return { height: facts.layer ? facts.layer.bounds.height : null, ...dom }
   }
@@ -246,11 +248,11 @@ test.describe('the island reveals', () => {
       { method: 'Input.dispatchMouseEvent', params: { type: 'mouseMoved', x: 120, y: 6 } }
     ])
 
-    await until(async () => (await chromeBox(ctx.app)).height === 77, { what: 'the chrome box to open' })
+    await until(async () => (await chromeBox(ctx.app)).height === 79, { what: 'the chrome box to open' })
 
     const opened = await chromeBox(ctx.app)
     expect(opened.open).toBe(true)
-    expect(opened.islandHidden).toBe(false)
+    expect(opened.islandVisible).toBe(true)
   })
 
   test('closes when the pointer reports from below the box', async () => {
@@ -261,7 +263,7 @@ test.describe('the island reveals', () => {
     await cdp(ctx.app, 'pages/chrome/', [
       { method: 'Input.dispatchMouseEvent', params: { type: 'mouseMoved', x: 120, y: 6 } }
     ])
-    await until(async () => (await chromeBox(ctx.app)).height === 77, { what: 'the chrome box to open' })
+    await until(async () => (await chromeBox(ctx.app)).height === 79, { what: 'the chrome box to open' })
 
     await focusContents(ctx.app, 'pages/settings/')
     await cdp(ctx.app, 'pages/settings/', [
@@ -272,7 +274,7 @@ test.describe('the island reveals', () => {
 
     const closed = await chromeBox(ctx.app)
     expect(closed.open).toBe(false)
-    expect(closed.islandHidden).toBe(true)
+    expect(closed.islandVisible).toBe(false)
   })
 
   test('closes when the window loses focus', async () => {
@@ -281,7 +283,7 @@ test.describe('the island reveals', () => {
     await cdp(ctx.app, 'pages/chrome/', [
       { method: 'Input.dispatchMouseEvent', params: { type: 'mouseMoved', x: 120, y: 6 } }
     ])
-    await until(async () => (await chromeBox(ctx.app)).height === 77, { what: 'the chrome box to open again' })
+    await until(async () => (await chromeBox(ctx.app)).height === 79, { what: 'the chrome box to open again' })
 
     // Emitted, not blurred: with no window manager behind the test display,
     // win.blur() leaves the window focused and fires nothing (measured), so the
@@ -291,6 +293,52 @@ test.describe('the island reveals', () => {
     await driveWindow(ctx.app, { op: 'emit', event: 'blur' })
 
     await until(async () => (await chromeBox(ctx.app)).height === 12, { what: 'the blur to close the box' })
+  })
+
+  test('lifts the island off the frame with its own surface', async () => {
+    await driveWindow(ctx.app, { op: 'focus' })
+    await focusContents(ctx.app, 'pages/chrome/')
+    await cdp(ctx.app, 'pages/chrome/', [
+      { method: 'Input.dispatchMouseEvent', params: { type: 'mouseMoved', x: 120, y: 6 } }
+    ])
+    await until(async () => (await chromeBox(ctx.app)).height === 79, { what: 'the chrome box to open' })
+
+    const surface = await chromeDom(ctx.app, `(() => {
+      const style = getComputedStyle(document.getElementById('island'))
+      return {
+        token: getComputedStyle(document.documentElement).getPropertyValue('--island-bg').trim(),
+        painted: style.backgroundColor,
+        border: style.borderTopColor,
+        radius: style.borderTopLeftRadius,
+        shadow: style.boxShadow
+      }
+    })()`)
+
+    // §4.8: the island's surface is not the frame's colour, and it is painted with
+    // the token it was handed rather than merely handed it
+    const frame = await framePaint(ctx.app)
+    expect(surface.token).not.toBe(frame.token)
+    expect(surface.painted).toBe(rgbString(rgbOf(surface.token)))
+
+    // the other two halves of the lift, and the capsule's radius (half of the
+    // 53 px island, which the token table expresses as calc(--island-h / 2))
+    expect(surface.border).not.toBe('rgba(0, 0, 0, 0)')
+    expect(surface.shadow).not.toBe('none')
+    expect(surface.radius).toBe('26.5px')
+
+    // and the raster agrees: a pixel in the island's body - the middle of the row,
+    // below the pills' band - takes the island's colour. Polled, not read once: a
+    // capture is the last frame the view presented, and the style had just changed.
+    const { layer } = await layerFacts(ctx.app)
+    const expected = rgbOf(surface.token)
+    await until(async () => {
+      const [px] = await pixels(ctx.app, 'pages/chrome/', [{ x: Math.round(layer.bounds.width / 2), y: 60 }])
+      return px.r === expected.r && px.g === expected.g && px.b === expected.b
+    }, { what: 'the island’s pixels to take its own surface colour' })
+
+    // The box is taller than frame + gap + island by the room the shadow paints
+    // in; without it the box's edge cuts the shadow off under the island.
+    expect((await chromeBox(ctx.app)).height).toBe(79)
   })
 })
 

@@ -151,7 +151,7 @@ Each criterion is mechanically checkable.
 | 14 | Accent | The page's colour reaches only the active pill, the address pill, the focus ring and the selected suggestion; otherwise the theme's neutrals | Colour identifies the page you are on without turning the chrome into a paint set |
 | 15 | Editing | In place in the island; no view hidden, no screenshot placeholder | Removes Min's freeze (`requestPlaceholder('editMode')`) rather than restyling it |
 | 16 | Themes | Data (token values), not CSS; validated; `--safe-mode` escape hatch | Shareable by construction, and a shared browser theme must not be executable code |
-| 17 | Dark appearance | AMOLED black: the built-in dark variant's backgrounds are true `#000` | On OLED the chrome dissolves into the display; it is the dark look the maintainer actually wants |
+| 17 | Dark appearance | AMOLED black frame, lifted island: the frame is true `#000`; the island is a surface a step off it, with its own border and shadow | On OLED the window's own edge dissolves into the display, while the island stays an object over the page rather than a hole in the frame (§4.8) |
 | 18 | The overview's shortcut | Ctrl+Shift+A, command `showTabOverview` | Chrome and Edge use it for tab search, it is free in the current keymap, and it is distinct from Ctrl+Tab's card cycling |
 
 ---
@@ -296,9 +296,18 @@ Each criterion is mechanically checkable.
 
 - All colour is tokens with light and dark values, following the existing `darkThemeIsActive` switch
   (`js/util/theme.js`).
-- The built-in dark variant is **AMOLED black**: backgrounds are true `#000`, and the neutrals and
-  hairline are chosen to stay legible against it. On an OLED panel the chrome dissolves into the
-  display.
+- The built-in dark variant is **AMOLED black**: the *frame's* background is true `#000`, and the
+  neutrals and hairline are chosen to stay legible against it. On an OLED panel the window's own
+  edge dissolves into the display.
+- The island is a **lifted surface** over that frame: its own background (`--island-bg`, `#23252b`
+  in the dark variant — a step off the frame, not the same black), a 1 px `--island-border`, and a
+  deeper `--island-shadow` (`0 16px 46px` plus `0 2px 8px`) than a plain bar would need. Its radius
+  is the **capsule rule** — half the island's height, so the row's ends are semicircles — and the
+  chrome box reserves 8 px under it for the shadow to paint in, so the box's own edge never cuts
+  that shadow into a hard line.
+  *(Maintainer's call, 2026-10-19, after the layering spike was recovered and re-run: with
+  `--island-bg` equal to `--frame-bg` the island had no edge at all — a black band, not an
+  object — which the spike's surface had and this table had lost.)*
 - The page's colour (`js/navbar/tabColor.js`) reaches exactly: the active pill (strip and island),
   the active indicator, the address pill, the focus ring, and the selected suggestion.
 - Everything else is neutral chrome. When a page has no colour of its own, the theme's accent is
