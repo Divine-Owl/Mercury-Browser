@@ -124,7 +124,7 @@ Each criterion is mechanically checkable.
 | SC5 | The strip switches tabs; with more pills than fit, the row scrolls by wheel and by drag, and the empty frame still drags the window |
 | SC6 | Ctrl+Tab shows the card row, cycles in row order (Shift reversed), never exceeds the chrome box, and commits on release |
 | SC7 | Address editing hides nothing: during an edit, no tab view is hidden and no screenshot placeholder is requested |
-| SC8 | The overview opens as a searchable list of tabs grouped by task; choosing a tab focuses it |
+| SC8 | The overview opens from the island's button and from Ctrl+Shift+A as a searchable list of tabs grouped by task; choosing a tab focuses it |
 | SC9 | The new settings apply live: page radius, hover tolerance, pinned chrome |
 | SC10 | A theme file changes the chrome through tokens; an invalid theme is rejected with the default left in place; safe mode loads defaults |
 | SC11 | SP0's suite stays green: identity, localization, packaging, and the existing end-to-end tests |
@@ -151,6 +151,8 @@ Each criterion is mechanically checkable.
 | 14 | Accent | The page's colour reaches only the active pill, the address pill, the focus ring and the selected suggestion; otherwise the theme's neutrals | Colour identifies the page you are on without turning the chrome into a paint set |
 | 15 | Editing | In place in the island; no view hidden, no screenshot placeholder | Removes Min's freeze (`requestPlaceholder('editMode')`) rather than restyling it |
 | 16 | Themes | Data (token values), not CSS; validated; `--safe-mode` escape hatch | Shareable by construction, and a shared browser theme must not be executable code |
+| 17 | Dark appearance | AMOLED black: the built-in dark variant's backgrounds are true `#000` | On OLED the chrome dissolves into the display; it is the dark look the maintainer actually wants |
+| 18 | The overview's shortcut | Ctrl+Shift+A, command `showTabOverview` | Chrome and Edge use it for tab search, it is free in the current keymap, and it is distinct from Ctrl+Tab's card cycling |
 
 ---
 
@@ -187,8 +189,9 @@ Each criterion is mechanically checkable.
 - Drag: the whole frame drags the window; pills and every other control are `no-drag`. Accepted
   cost: the top edge cannot be a window-resize handle.
 - Content: **only pills.** No text, no icons, no title.
-- Titlebar behaviours (**recommendation — veto at review**): double-click toggles maximise. No custom
-  system menu is drawn; the island carries the window controls.
+- Titlebar behaviours: double-clicking the strip toggles maximise (on the frame itself; a
+  double-click on a pill is not a maximise gesture). No custom system menu is drawn; the island
+  carries the window controls.
 
 ### 4.3 The strip (pills)
 
@@ -234,6 +237,7 @@ Each criterion is mechanically checkable.
 ### 4.5 The tab HUD (cards)
 
 - Ctrl+Tab grows the strip into a row of **cards**: one per tab, in tab order; Shift reverses. The
+  cards stay expanded for as long as Ctrl is held, and each tap of Tab moves the selection. The
   command already exists (`switchToNextTab`, `js/util/keyMap.js:22`); the cards are its visual.
 - A card is **favicon + title**; no thumbnails, nothing captured.
 - The selected card is emphasised; the row scrolls to keep the selection centred.
@@ -286,6 +290,9 @@ Each criterion is mechanically checkable.
 
 - All colour is tokens with light and dark values, following the existing `darkThemeIsActive` switch
   (`js/util/theme.js`).
+- The built-in dark variant is **AMOLED black**: backgrounds are true `#000`, and the neutrals and
+  hairline are chosen to stay legible against it. On an OLED panel the chrome dissolves into the
+  display.
 - The page's colour (`js/navbar/tabColor.js`) reaches exactly: the active pill (strip and island),
   the active indicator, the address pill, the focus ring, and the selected suggestion.
 - Everything else is neutral chrome. When a page has no colour of its own, the theme's accent is
@@ -296,7 +303,10 @@ Each criterion is mechanically checkable.
 ### 4.9 The overview
 
 - The overview button in the island opens a searchable list of the window's tabs, grouped by task
-  (`js/tabState/task.js`).
+  (`js/tabState/task.js`). Its default shortcut is **Ctrl+Shift+A** (command `showTabOverview`) —
+  Chrome and Edge's tab-search convention, free in the current keymap, and deliberately different
+  from Ctrl+Tab, which expands the strip instead. The command and the binding land in M2 with the
+  surface.
 - It must cover the page, so it is **its own layer** above the chrome layer.
 - Search reuses the existing scoring (`quick-score` is already a dependency).
 - Choosing a tab focuses it and closes the overview; Escape or a click outside closes it.
@@ -356,11 +366,13 @@ Each criterion is mechanically checkable.
 
 - With the chrome retracted, the mouse path is: hover the frame → island → close. That is a
   deliberate design (the controls live with everything else), and a discoverability debt.
-- Keyboard is the fast path and already exists: `closeWindow` (Ctrl+Shift+W) and `quitMin` (Ctrl+Q),
-  defined in `js/util/keyMap.js`. The OS's close (Alt+F4, the taskbar) is unchanged.
+- Keyboard is the fast path and already exists: `closeWindow` (Ctrl+Shift+W) and `quitMercury`
+  (Ctrl+Q), defined in `js/util/keyMap.js`. The OS's close (Alt+F4, the taskbar) is unchanged.
 - The first-run new tab page names the keyboard path, because a close control you must summon is
   worth documenting.
-- SP1 introduces no new shortcut.
+- SP1 adds exactly one shortcut — the overview's Ctrl+Shift+A (§4.9) — and renames the quit command
+  off Min's name: `quitMin` becomes `quitMercury` (`js/util/keyMap.js`, `js/defaultKeybindings.js`,
+  `main/menu.js`). Nothing has shipped, so no settings migration is owed.
 
 ### 4.14 The fate of existing modules
 
@@ -379,7 +391,8 @@ Each criterion is mechanically checkable.
 | `js/taskOverlay/*` | The basis for the overview layer (M2) |
 | `js/webviews.js` placeholder machinery | Stays for surfaces that still use it; no SP1 chrome surface uses it |
 | `js/windowControls.js`, `css/windowControls.css` | Replaced by the island's controls |
-| `js/defaultKeybindings.js` | No new shortcuts; existing commands keep their keys |
+| `js/defaultKeybindings.js` | Gains the overview command (M2); `quitMin` renamed to `quitMercury` |
+| `js/util/keyMap.js` | `quitMin` → `quitMercury`; gains `showTabOverview` (Ctrl+Shift+A) in M2 |
 | `js/util/theme.js` | Kept; the chrome tokens follow the same light/dark switch |
 
 ---
