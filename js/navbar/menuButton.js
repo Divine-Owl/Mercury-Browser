@@ -1,7 +1,6 @@
 const { ipcRenderer } = require('electron')
 
 var keybindings = require('keybindings.js')
-var settings = require('util/settings/settings.js')
 
 var menuButton = document.getElementById('menu-button')
 
@@ -22,7 +21,7 @@ function initialize () {
   })
 
   keybindings.defineShortcut('showMenu', function () {
-    if (!settings.get('useSeparateTitlebar') && (window.platformType === 'windows' || window.platformType === 'linux')) { showSecondaryMenu() }
+    if (window.platformType === 'windows' || window.platformType === 'linux') { showSecondaryMenu() }
   })
 }
 

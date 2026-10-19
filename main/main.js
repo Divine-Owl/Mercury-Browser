@@ -197,16 +197,19 @@ function createWindowWithBounds (bounds, customArgs) {
     y: bounds.y,
     minWidth: (process.platform === 'win32' ? 400 : 320), // controls take up more horizontal space on Windows
     minHeight: 350,
-    titleBarStyle: settings.get('useSeparateTitlebar') ? 'default' : 'hidden',
+    titleBarStyle: 'hidden',
     trafficLightPosition: { x: 12, y: 10 },
     icon: __dirname + '/icons/icon256.png',
-    frame: settings.get('useSeparateTitlebar'),
+    frame: false,
+    transparent: true,
     alwaysOnTop: settings.get('windowAlwaysOnTop'),
-    backgroundColor: '#fff', // the value of this is ignored, but setting it seems to work around https://github.com/electron/electron/issues/10559
+    // the value is now the transparent one; setting backgroundColor at all seems to work around https://github.com/electron/electron/issues/10559
+    backgroundColor: '#00000000',
   })
 
   // windows and linux always use a menu button in the upper-left corner instead
-  // if frame: false is set, this won't have any effect, but it does apply on Linux if "use separate titlebar" is enabled
+  // of a native menu bar; the window is frameless now, so this is a no-op, but
+  // it stays for the platforms that could otherwise show one
   if (process.platform !== 'darwin') {
     newWin.setMenuBarVisibility(false)
   }

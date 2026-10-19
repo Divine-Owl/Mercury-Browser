@@ -5,7 +5,6 @@ var settings = require('util/settings/settings.js')
 
 var placeholderImg = document.getElementById('webview-placeholder')
 
-var hasSeparateTitlebar = settings.get('useSeparateTitlebar')
 var windowIsMaximized = false // affects navbar height on Windows
 var windowIsFullscreen = false
 
@@ -158,7 +157,7 @@ const webviews = {
         height: window.innerHeight
       }
     } else {
-      if (!hasSeparateTitlebar && (window.platformType === 'linux' || window.platformType === 'windows') && !windowIsMaximized && !windowIsFullscreen) {
+      if ((window.platformType === 'linux' || window.platformType === 'windows') && !windowIsMaximized && !windowIsFullscreen) {
         var navbarHeight = 48
       } else {
         var navbarHeight = 36

@@ -1,10 +1,4 @@
-var settings = require('util/settings/settings.js')
-
 function initialize () {
-  if (settings.get('useSeparateTitlebar') === true) {
-    document.body.classList.add('separate-titlebar')
-  }
-
   var windowIsMaximized = false
   var windowIsFullscreen = false
 

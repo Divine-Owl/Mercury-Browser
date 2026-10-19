@@ -6,7 +6,6 @@ var siteThemeCheckbox = document.getElementById('checkbox-site-theme')
 var showDividerCheckbox = document.getElementById('checkbox-show-divider')
 var userscriptsCheckbox = document.getElementById('checkbox-userscripts')
 var userscriptsShowDirectorySection = document.getElementById('userscripts-show-directory')
-var separateTitlebarCheckbox = document.getElementById('checkbox-separate-titlebar')
 var openTabsInForegroundCheckbox = document.getElementById('checkbox-open-tabs-in-foreground')
 var autoPlayCheckbox = document.getElementById('checkbox-enable-autoplay')
 var userAgentCheckbox = document.getElementById('checkbox-user-agent')
@@ -300,19 +299,6 @@ languagePicker.value = getCurrentLanguage()
 
 languagePicker.addEventListener('change', function () {
   settings.set('userSelectedLanguage', this.value)
-  showRestartRequiredBanner()
-})
-
-/* separate titlebar setting */
-
-settings.get('useSeparateTitlebar', function (value) {
-  if (value === true) {
-    separateTitlebarCheckbox.checked = true
-  }
-})
-
-separateTitlebarCheckbox.addEventListener('change', function (e) {
-  settings.set('useSeparateTitlebar', this.checked)
   showRestartRequiredBanner()
 })
 
