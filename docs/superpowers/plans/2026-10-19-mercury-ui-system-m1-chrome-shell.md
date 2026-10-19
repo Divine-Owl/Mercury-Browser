@@ -55,6 +55,7 @@ Not in M1, deliberately: strip scrolling/drag/keep-in-view and the overview (M2)
 | CDP `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent` deliver; `sendInputEvent`'s wheel does not | All pointer/key injection in tests goes through `webContents.debugger` |
 | Wayland: no cursor position, unreliable window position/size | Every geometric assertion is relative to the window's own content bounds |
 | `capturePage()` corner probes proved clean at radius 0/12/25 px | SC1's pixel assertions use exactly this method |
+| Electron's `webContents.getTitle()` is a main-process cache that **lags** the document's title (measured: page `complete` and titled while the cache still returned the URL, up to ~1 s under load) | Specs that assert on a tab's title must wait for the cache; the harness's `openShortUrl` does |
 | Wheel over the frame is unverified | M2's problem (strip scrolling); M1 has no wheel behaviour |
 
 ---
