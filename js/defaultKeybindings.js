@@ -12,7 +12,7 @@ var keyMap = keyMapModule.userKeyMap(settings.get('keyMap'))
 
 const defaultKeybindings = {
   initialize: function () {
-    keybindings.defineShortcut('quitMin', function () {
+    keybindings.defineShortcut('quitMercury', function () {
       ipc.send('quit')
     })
 

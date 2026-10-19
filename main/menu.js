@@ -81,7 +81,7 @@ function buildAppMenu (options = {}) {
 
   var quitAction = {
     label: l('appMenuQuit').replace('%n', app.name),
-    accelerator: getFormattedKeyMapEntry('quitMin'),
+    accelerator: getFormattedKeyMapEntry('quitMercury'),
     click: function (item, window, event) {
       if (!event.triggeredByAccelerator) {
         app.quit()
