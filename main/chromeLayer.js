@@ -13,7 +13,7 @@
    native view entirely. Keeping the height in one function here is what makes
    "the box is exactly as tall as the chrome it shows" true by construction. */
 
-/* global ipc, windows, settings, WebContentsView, chromeTokens, chromeSettings, chromeReveal, getView, getWindowFromViewContents */
+/* global ipc, windows, settings, WebContentsView, chromeTokens, chromeSettings, chromeReveal, getView, getWindowFromViewContents, getWindowWebContents */
 
 const CHROME_PAGE_URL = 'mercury://app/pages/chrome/index.html'
 
@@ -43,7 +43,7 @@ const chromeLayer = {
     const bounds = win.getContentBounds()
     view.setBounds({ x: 0, y: 0, width: bounds.width, height: chromeTokens.frameHeight })
 
-    chromeLayers.set(win, { view, state: 'closed' })
+    chromeLayers.set(win, { view, state: 'closed', tabs: null })
     win.contentView.addChildView(view)
 
     // the layer is per-window: the window's death is its death, and nothing else
@@ -144,6 +144,17 @@ const chromeLayer = {
     const tokens = Object.assign({}, dark ? chromeTokens.dark : chromeTokens.light)
     tokens['--r-page'] = chromeSettings.pageCornerRadius.clamp(settings.get('pageCornerRadius')) + 'px'
     chromeLayer.send(win, 'chrome-tokens', { dark, tokens })
+  },
+
+  /* The strip's last summary, re-sent on the handshake because the order the two
+     pages load in is not fixed (see the chrome-tabs handler). Nothing is sent
+     when no publish has arrived yet: the page then shows an empty row, which is
+     also what it shows for a window whose UI page is still starting. */
+  pushTabs: function (win) {
+    const layer = chromeLayers.get(win)
+    if (layer && layer.tabs) {
+      chromeLayer.send(win, 'chrome-tabs', layer.tabs)
+    }
   }
 }
 
@@ -186,6 +197,32 @@ ipc.on('page-pointer', function (e, report) {
   revealFrom(win, { source: 'page', y: viewBounds.y + report.y })
 })
 
+/* The UI page publishes the strip's summary; the chrome layer renders it. Two
+   pages that only ever hear from main, and main the only one that knows which
+   window a page belongs to.
+
+   The last summary is kept per window because the two pages load in no fixed
+   order: if the UI page publishes first, the chrome page has no listener yet and
+   the message would be lost, so chrome-ready re-sends what was kept. */
+ipc.on('chrome-tabs', function (e, summary) {
+  const win = windows.windowFromContents(e.sender)?.win
+  const layer = win ? chromeLayers.get(win) : null
+  if (!layer) {
+    return
+  }
+  layer.tabs = summary
+  chromeLayer.pushTabs(win)
+})
+
+/* A command from the chrome layer goes to the page that owns the tabs. The layer
+   never talks to the UI page directly and neither knows the other's address. */
+ipc.on('chrome-action', function (e, data) {
+  const win = windows.windowFromContents(e.sender)?.win
+  if (win) {
+    getWindowWebContents(win).send('chrome-action', data)
+  }
+})
+
 /* The page announces itself once its bundle has run, which is the earliest moment
    a push can be delivered; pushing in `create` would race the page's own
    listeners. */
@@ -196,6 +233,8 @@ ipc.on('chrome-ready', function (e) {
   }
   chromeLayer.pushTokens(win)
   chromeLayer.updateGeometry(win)
+  // the strip's last summary, if the UI page published before this page existed
+  chromeLayer.pushTabs(win)
 })
 
 settings.listen('darkThemeIsActive', function () {

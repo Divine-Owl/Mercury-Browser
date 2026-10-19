@@ -26,17 +26,21 @@ if (navigator.platform === 'MacIntel') {
 var chromeTokens = require('chrome/tokens.js')
 var frame = require('chrome/frame.js')
 var pointer = require('chrome/pointer.js')
+var strip = require('chrome/strip.js')
 
 frame.setTokens(chromeTokens.light)
 
 // the pointer on the chrome's own box: the frame band, or the island while it is open
 pointer.initialize()
 
-/* Main's pushes across M1. The two this milestone consumes are wired; the rest
+// the strip's pills: one row, delegated press
+strip.initialize()
+
+/* Main's pushes across M1. The three this milestone consumes are wired; the rest
    are registered now because the handshake is this file's last line and a
    message that arrives with no listener is lost - the modules that read them
-   arrive with the tasks that own them (chrome-tabs in Task 5, chrome-nav-state
-   and chrome-focus-address in Task 6, chrome-window-state in Task 7). */
+   arrive with the tasks that own them (chrome-nav-state and chrome-focus-address
+   in Task 6, chrome-window-state in Task 7). */
 ipc.on('chrome-tokens', function (e, data) {
   frame.setTokens(data.tokens)
 })
@@ -45,7 +49,10 @@ ipc.on('chrome-geom', function (e, data) {
   frame.setGeom(data.state)
 })
 
-ipc.on('chrome-tabs', function () { /* the strip's pills, Task 5 */ })
+ipc.on('chrome-tabs', function (e, summary) {
+  strip.update(summary)
+})
+
 ipc.on('chrome-nav-state', function () { /* the island's navigation controls, Task 6 */ })
 ipc.on('chrome-window-state', function () { /* the island's window controls, Task 7 */ })
 ipc.on('chrome-focus-address', function () { /* the address pill, Task 6 */ })

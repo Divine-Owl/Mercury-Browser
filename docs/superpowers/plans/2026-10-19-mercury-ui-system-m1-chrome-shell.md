@@ -57,6 +57,7 @@ Not in M1, deliberately: strip scrolling/drag/keep-in-view and the overview (M2)
 | `capturePage()` corner probes proved clean at radius 0/12/25 px | SC1's pixel assertions use exactly this method |
 | `capturePage()` hands back an **opaque** bitmap: a transparent area of the page arrives white, alpha 255 (measured on the chrome layer's own capture), and `border-radius` does **not** clip hit testing | Corner assertions compare pixels against the frame's token colour - "the frame paints here / does not paint here" - never against alpha; the window's transparency is asserted by the source test and `getBackgroundColor()`, not by a pixel |
 | With no window manager behind the test display, the window never loses focus: `win.blur()` leaves `isFocused()` true and fires neither `focus` nor `blur` (measured) | No spec can produce a real blur. The reveal's blur case emits the event onto the window and says so, and proves the handler and the applied answer; the rule itself is `test/chromeReveal.test.js`'s |
+| `capturePage()` returns the **last presented frame**: a pixel read immediately after a style change can still show the previous colour (caught by the theme-repaint case, which passed alone and failed in the full suite) | Every pixel assertion that follows a change waits for the pixel, never for the DOM property - the same shape Task 9's live-radius loop needs |
 | Electron's `webContents.getTitle()` is a main-process cache that **lags** the document's title (measured: page `complete` and titled while the cache still returned the URL, up to ~1 s under load) | Specs that assert on a tab's title must wait for the cache; the harness's `openShortUrl` does |
 | Wheel over the frame is unverified | M2's problem (strip scrolling); M1 has no wheel behaviour |
 
@@ -414,7 +415,13 @@ var chromeBridge = {
 
 `tabs.get()` is the selected task's tabs, in order — the strip shows that task's tabs, exactly as Min's tab strip does; the overview (M2) is where other tasks appear. Say so in a comment.
 
-`main/chromeLayer.js`: `ipc.on('chrome-tabs', e => send(windowFromContents(e.sender).win, 'chrome-tabs', data))` and the same relay for `chrome-nav-state`.
+**As implemented, the summary carries only what a pill renders:** `{ tabs: [{ id, active, title, accent }] }` — the tooltip is `title`, the active pill's colour is `accent` (`themeColor.color || backgroundColor.color || null`, with the stylesheet's `--accent` as the fallback). No `private`, no `atRest`, no `fullUrl`, no `faviconUrl`: each arrives with the consumer that reads it (M2's overview, Task 6's address pill). The payload has no `selected` field either — `active` per pill says it.
+
+**And the id is sent as the string the summary gave it.** `js/tabState` compares ids with `===` throughout (`has`, `getIndex`, `setSelected`), so the plan's original `Number(pill.dataset.tabId)` would name a tab that does not exist: `tabs.has()` would fail, `setSelected` would throw, and the press would do nothing. `chromeBridge.applyAction` also has to tolerate a stale id — a press can cross a close — so it asks `tabs.get(data.tabId)` before switching rather than throwing.
+
+`main/chromeLayer.js`: `ipc.on('chrome-tabs', e => …)` keeps the summary on the window's layer entry (`layer.tabs`) and pushes it, and `ipc.on('chrome-action', …)` relays a chrome command to the window's UI page (`getWindowWebContents(win).send('chrome-action', data)`). The same relay shape serves `chrome-nav-state` in Task 7.
+
+**The summary is kept, not just relayed:** the two pages load in no fixed order, so a publish that lands before the chrome page's bundle has run would be lost — the reason the handshake exists. `chrome-ready` re-sends the kept summary (`chromeLayer.pushTabs`), which is also what makes the strip appear on a window whose UI page published first. When nothing has been published yet, the page shows an empty row rather than a wrong one.
 
 `js/chrome/strip.js`:
 
@@ -426,11 +433,11 @@ var strip = {
     // one .pill per tab: data-tab-id, role="tab", aria-selected, title = tab.title,
     // active pill style.background = tab.accent || '' ('' falls back to var(--accent))
   },
-  onClick: function (pill) { ipc.send('chrome-action', { action: 'selectTab', tabId: Number(pill.dataset.tabId) }) }
+  onClick: function (pill) { ipc.send('chrome-action', { action: 'selectTab', tabId: pill.dataset.tabId }) } // the string, never Number()ed: see above
 }
 ```
 
-Click only in M1 — middle-click close, right-click menu, wheel scroll and drag scrolling are M2 (§5); do not build them. **The hit box, not the drawing, is the target:** §4.3 says a pill's hit box is the frame's full height, so the pill element fills the row (`height: 100%`) and an inner element (or `::before`) draws the 4 px bar — Task 2 shipped the drawing height on the element itself, which leaves a 4 px target and is wrong. Assert it: the pill's `getBoundingClientRect().height` equals the strip's.
+Click only in M1 — middle-click close, right-click menu, wheel scroll and drag scrolling are M2 (§5); do not build them. **The hit box, not the drawing, is the target:** §4.3 says a pill's hit box is the frame's full height, so the pill element fills the row (`height: 100%`) and an inner `.pill-bar` draws the bar — Task 2 shipped the drawing height on the element itself, which leaves a 4 px target and is wrong. The accent colour goes on the bar for the same reason. Assert both numbers: the pill's `getBoundingClientRect().height` equals the row's (12 px in the frame) and the bar's is `--pill-h-frame` (4 px).
 
 Harness: `const newTab = app => inMain(app, …)` which sends `'addTab'` to the UI page's webContents — **exactly the message the application menu's New Tab item sends** (`main/menu.js:26`), because a native menu cannot be clicked by a test. Comment that provenance at the definition.
 

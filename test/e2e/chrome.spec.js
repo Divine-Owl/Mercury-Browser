@@ -18,7 +18,7 @@ alpha half of the claim stays with the source test rather than being faked here.
 
 const { test, expect } = require('@playwright/test')
 
-const { launchApp, inMain, ensureSettingsPage, openSettingsTab, layerFacts, chromeDom, cdp, pixels, driveWindow, until } = require('./harness.js')
+const { launchApp, inMain, ensureSettingsPage, openSettingsTab, layerFacts, chromeDom, cdp, pixels, driveWindow, focusContents, newTab, until } = require('./harness.js')
 
 const rgbOf = hex => {
   const value = parseInt(hex.slice(1), 16)
@@ -158,9 +158,15 @@ test.describe('the chrome layer', () => {
     expect((await framePaint(ctx.app)).painted).toBe(rgbString(rgbOf(other)))
 
     // and the raster follows the token, so the repaint is real paint and not only
-    // a custom property that changed
-    const [framePixel] = await pixels(ctx.app, 'pages/chrome/', [{ x: 25, y: 0 }])
-    expect({ r: framePixel.r, g: framePixel.g, b: framePixel.b }).toEqual(rgbOf(other))
+    // a custom property that changed. Waited for rather than read once: a capture
+    // is the last frame the view presented, and a style change is not a frame
+    // until the compositor has drawn one - reading immediately can return the
+    // colour the page had before.
+    const expected = rgbOf(other)
+    await until(async () => {
+      const [px] = await pixels(ctx.app, 'pages/chrome/', [{ x: 25, y: 0 }])
+      return px.r === expected.r && px.g === expected.g && px.b === expected.b
+    }, { what: `the frame's pixels to take ${other}` })
 
     await ctx.ui.evaluate(dark => ipc.send('settingChanged', 'darkThemeIsActive', dark), startedDark)
     await until(async () => (await framePaint(ctx.app)).token === (startedDark ? '#000000' : '#f6f6f6'), {
@@ -235,6 +241,7 @@ test.describe('the island reveals', () => {
     expect((await chromeBox(ctx.app)).height).toBe(12)
 
     await driveWindow(ctx.app, { op: 'focus' })
+    await focusContents(ctx.app, 'pages/chrome/')
     await cdp(ctx.app, 'pages/chrome/', [
       { method: 'Input.dispatchMouseEvent', params: { type: 'mouseMoved', x: 120, y: 6 } }
     ])
@@ -250,11 +257,13 @@ test.describe('the island reveals', () => {
     // Opens it here rather than relying on the case above: on its own, "the box
     // is closed" would be true before any implementation existed.
     await driveWindow(ctx.app, { op: 'focus' })
+    await focusContents(ctx.app, 'pages/chrome/')
     await cdp(ctx.app, 'pages/chrome/', [
       { method: 'Input.dispatchMouseEvent', params: { type: 'mouseMoved', x: 120, y: 6 } }
     ])
     await until(async () => (await chromeBox(ctx.app)).height === 77, { what: 'the chrome box to open' })
 
+    await focusContents(ctx.app, 'pages/settings/')
     await cdp(ctx.app, 'pages/settings/', [
       { method: 'Input.dispatchMouseEvent', params: { type: 'mouseMoved', x: 120, y: 400 } }
     ])
@@ -267,6 +276,8 @@ test.describe('the island reveals', () => {
   })
 
   test('closes when the window loses focus', async () => {
+    await driveWindow(ctx.app, { op: 'focus' })
+    await focusContents(ctx.app, 'pages/chrome/')
     await cdp(ctx.app, 'pages/chrome/', [
       { method: 'Input.dispatchMouseEvent', params: { type: 'mouseMoved', x: 120, y: 6 } }
     ])
@@ -280,5 +291,96 @@ test.describe('the island reveals', () => {
     await driveWindow(ctx.app, { op: 'emit', event: 'blur' })
 
     await until(async () => (await chromeBox(ctx.app)).height === 12, { what: 'the blur to close the box' })
+  })
+})
+
+test.describe('the strip', () => {
+  let ctx
+
+  /* What each pill is and how it is drawn. The hit box and the bar are separate
+     measurements on purpose: §4.3 makes the press target the row's full height
+     while 4 px is all that is painted, and a spec that read only one of them
+     would accept a 4 px target. */
+  const pills = app => chromeDom(app, `Array.from(document.querySelectorAll('#strip .pill')).map(pill => {
+    const bar = pill.querySelector('.pill-bar')
+    const rect = pill.getBoundingClientRect()
+    return {
+      id: pill.dataset.tabId,
+      role: pill.getAttribute('role'),
+      selected: pill.getAttribute('aria-selected'),
+      title: pill.title,
+      bar: bar ? getComputedStyle(bar).backgroundColor : null,
+      hitHeight: rect.height,
+      barHeight: bar ? bar.getBoundingClientRect().height : null
+    }
+  })`)
+
+  test.beforeAll(async () => {
+    ctx = await launchApp()
+    // The first publish can be earlier than the chrome page's bundle, which is
+    // why the layer keeps the last summary and re-sends it on chrome-ready; this
+    // waits for the result rather than assuming an order.
+    await until(async () => (await pills(ctx.app)).length > 0, { what: 'the strip to show its first pill' })
+  })
+
+  test.afterAll(async () => {
+    await ctx.close()
+  })
+
+  test('shows one pill per tab, in tab order', async () => {
+    const [first] = await pills(ctx.app)
+
+    expect(first.role).toBe('tab')
+    expect(first.selected).toBe('true')
+    expect(first.id).toMatch(/^\d+$/) // tab ids are numeric strings, never numbers
+    expect(first.bar).not.toBe('rgba(0, 0, 0, 0)')
+
+    await newTab(ctx.app)
+    await until(async () => (await pills(ctx.app)).length === 2, { what: 'the second tab’s pill' })
+
+    const [older, newer] = await pills(ctx.app)
+    expect(older.id).toBe(first.id) // the new tab lands after the old one, not before
+    expect(newer.id).not.toBe(first.id)
+    expect(newer.selected).toBe('true') // a tab opened from the menu is the selected one
+    expect(older.selected).toBe('false')
+  })
+
+  test('gives the pill the row’s height and paints a bar inside it', async () => {
+    const [first] = await pills(ctx.app)
+
+    expect(first.hitHeight).toBe(12) // the frame's height: the press target
+    expect(first.barHeight).toBe(4) // --pill-h-frame: what is drawn
+  })
+
+  test('switches tabs when a pill is clicked', async () => {
+    const [firstPill] = await pills(ctx.app)
+    expect(firstPill.selected).toBe('false') // the tab the case above opened is active
+
+    const at = await chromeDom(ctx.app, `(() => {
+      const rect = document.querySelector('#strip .pill').getBoundingClientRect()
+      return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }
+    })()`)
+
+    await driveWindow(ctx.app, { op: 'focus' })
+    await focusContents(ctx.app, 'pages/chrome/')
+    await cdp(ctx.app, 'pages/chrome/', [
+      { method: 'Input.dispatchMouseEvent', params: { type: 'mousePressed', x: at.x, y: at.y, button: 'left', clickCount: 1 } },
+      { method: 'Input.dispatchMouseEvent', params: { type: 'mouseReleased', x: at.x, y: at.y, button: 'left', clickCount: 1 } }
+    ])
+
+    await until(async () => (await pills(ctx.app))[0].selected === 'true', { what: 'the first pill to become active' })
+
+    // and the tab state agrees, which is the half that proves the command
+    // travelled: the pill's id is a string, so a message that turned it into a
+    // number would reach nothing and leave the selection where it was
+    expect(await ctx.ui.evaluate(() => tabs.getSelected())).toBe(firstPill.id)
+  })
+
+  test('paints the active pill differently from the others', async () => {
+    const [active, inactive] = await pills(ctx.app)
+
+    expect(active.selected).toBe('true')
+    expect(inactive.selected).toBe('false')
+    expect(active.bar).not.toBe(inactive.bar)
   })
 })

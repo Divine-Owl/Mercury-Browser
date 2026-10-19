@@ -58,30 +58,46 @@ body {
 }
 
 /* Pills are state, not a tab bar: width and colour carry the meaning, and there
-   is no text (§4.3). */
+   is no text (§4.3).
+
+   The pill is a button whose box is the row's full height, and the bar inside it
+   is what is painted: §4.3 makes the hit box the frame's full height, because a
+   4 px press target is not a target, while 4 px is all a user should see. */
 .pill {
   flex: none;
   width: var(--pill-w);
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  -webkit-app-region: no-drag;
+}
+
+.pill-bar {
+  width: 100%;
   border-radius: 999px;
   background: var(--pill);
-  -webkit-app-region: no-drag;
 }
 
 .pill.active {
   width: var(--pill-active-w);
+}
+
+.pill.active .pill-bar {
   background: var(--accent);
 }
 
 /* Drawn height: 4 px in the frame (§4.3's --strip-h − 8px) and 16 px in the
    island, whose row is 53 px tall. */
-#frame .pill {
+#frame .pill-bar {
   height: var(--pill-h-frame);
 }
 
-#island .pill {
+#island .pill-bar {
   height: var(--pill-h-island);
 }
-
 /* The island, in full width minus the gap on each side in M1: the spec does not
    fix its width, and M3 refines it. It is as tall as the token says and starts
    one --island-gap below the frame, which is the geometry boxHeight('open')

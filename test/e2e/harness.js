@@ -255,6 +255,31 @@ const driveWindow = (app, request) => inMain(app, ({ BaseWindow }, request) => {
   return win.isFocused()
 }, request)
 
+/* Focuses the window's webContents for `urlFragment`, so an injection lands.
+
+   The recorded fact is that injected input needs a focused window *and* a focused
+   target; a pointer that moves from one page to another moves that focus with it,
+   and a case that leaves it to whichever page was injected into last is a case
+   that passes or fails with the order the file happens to run in. */
+const focusContents = (app, urlFragment) => inMain(app, ({ webContents }, urlFragment) => {
+  const wc = webContents.getAllWebContents().find(w => w.getURL().includes(urlFragment))
+  if (!wc) throw new Error(`no webContents matching ${urlFragment}`)
+  wc.focus()
+  return wc.isFocused()
+}, urlFragment)
+
+/* Opens a tab, by sending the UI page the very message the application menu's
+   New Tab item sends (main/menu.js's `sendIPCToWindow(window, 'addTab')`, which
+   delivers `{}`): a native menu cannot be clicked from a test, so the message is
+   the honest stand-in - it is exactly what a click on that item delivers, and
+   js/menuRenderer.js is the other end of it. */
+const newTab = app => inMain(app, ({ webContents }) => {
+  const wc = webContents.getAllWebContents().find(w => w.getURL() === 'mercury://app/index.html')
+  if (!wc) throw new Error('the UI page is not open')
+  wc.send('addTab', {})
+  return true
+})
+
 /* Samples pixels out of a view's own capture.
 
    The bitmap is BGRA. What a capture cannot show is transparency: the page's
@@ -473,6 +498,8 @@ module.exports = {
   cdp,
   pixels,
   driveWindow,
+  focusContents,
+  newTab,
   UI_URL,
   CHROME_PAGE,
   enterUrl,
