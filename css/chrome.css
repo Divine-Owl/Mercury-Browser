@@ -1,0 +1,118 @@
+/* The chrome page's stylesheet.
+
+   No colour and no chrome length lives here: every value is a custom property
+   whose value comes from js/chrome/tokens.js, applied by the page's entry. The
+   only `transparent` below is the page's own background - the window is
+   transparent behind the frame's rounded corners, and the page must not paint
+   over it.
+
+   main owns the state (js/chrome/reveal.js) and the geometry
+   (chromeTokens.boxHeight); the classes and attributes here are how that
+   decision reaches the DOM, never a second opinion about it. */
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+/* The frame: the whole band drags the window (§4.2), and the pills opt out of
+   it below. The top corners are the window's; the bottom corners are square
+   because the window's own are, and the hairline sits at the very bottom edge. */
+#frame {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: var(--strip-h);
+  background: var(--frame-bg);
+  border-radius: var(--r-window) var(--r-window) 0 0;
+  -webkit-app-region: drag;
+}
+
+/* The hairline, stopping --r-page short of each end so it meets the page's own
+   corner arc without a corner (§4.7). The page's fillets begin at the same
+   offset, which is what makes the two read as one line. */
+#frame::after {
+  content: '';
+  position: absolute;
+  left: var(--r-page);
+  right: var(--r-page);
+  bottom: 0;
+  height: 1px;
+  background: var(--hairline);
+}
+
+/* The strip: one row of pills, centred while it fits and starting at the row's
+   start once it does not (--strip-align's `safe`). It lives in the frame while
+   the chrome is closed and is re-parented into the island while it is open, so
+   nothing here may assume a parent. */
+#strip {
+  display: flex;
+  align-items: center;
+  justify-content: var(--strip-align);
+  gap: var(--strip-gap);
+  padding: 0 var(--strip-pad);
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Pills are state, not a tab bar: width and colour carry the meaning, and there
+   is no text (§4.3). */
+.pill {
+  flex: none;
+  width: var(--pill-w);
+  border-radius: 999px;
+  background: var(--pill);
+  -webkit-app-region: no-drag;
+}
+
+.pill.active {
+  width: var(--pill-active-w);
+  background: var(--accent);
+}
+
+/* Drawn height: 4 px in the frame (§4.3's --strip-h − 8px) and 16 px in the
+   island, whose row is 53 px tall. */
+#frame .pill {
+  height: var(--pill-h-frame);
+}
+
+#island .pill {
+  height: var(--pill-h-island);
+}
+
+/* The island, in full width minus the gap on each side in M1: the spec does not
+   fix its width, and M3 refines it. It is as tall as the token says and starts
+   one --island-gap below the frame, which is the geometry boxHeight('open')
+   sizes the layer for. */
+#island {
+  position: absolute;
+  top: calc(var(--strip-h) + var(--island-gap));
+  left: var(--island-gap);
+  right: var(--island-gap);
+  height: var(--island-h);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  background: var(--island-bg);
+  border-radius: var(--island-radius);
+  box-shadow: var(--island-shadow);
+  -webkit-app-region: drag;
+}
+
+/* The attribute frame.setGeom() toggles. display: flex above would otherwise
+   beat the user agent's own [hidden] rule, and the island would paint while
+   closed. */
+#island[hidden] {
+  display: none;
+}
+
+/* Everything interactive in the island is no-drag, as in the frame's pills: a
+   press on a control must reach the page, not the window manager (§4.2). */
+#island .pill,
+#island button,
+#island input {
+  -webkit-app-region: no-drag;
+}

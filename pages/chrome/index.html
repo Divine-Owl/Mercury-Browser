@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; img-src 'self' data: https: http:"
+    />
+
+    <!-- no title, no text of any kind: the frame carries pills and nothing else (§4.2) -->
+
+    <link rel="stylesheet" href="/css/chrome.css" />
+  </head>
+
+  <body class="chrome ct-closed">
+    <div id="frame"><div id="strip"></div></div>
+
+    <!-- the strip is re-parented in here while the island is open (§4.4) -->
+    <div id="island" hidden></div>
+
+    <script src="/dist/chrome.js"></script>
+  </body>
+</html>
