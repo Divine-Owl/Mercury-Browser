@@ -190,8 +190,12 @@ Each criterion is mechanically checkable.
   cost: the top edge cannot be a window-resize handle.
 - Content: **only pills.** No text, no icons, no title.
 - Titlebar behaviours: double-clicking the strip toggles maximise (on the frame itself; a
-  double-click on a pill is not a maximise gesture). No custom system menu is drawn; the island
-  carries the window controls.
+  double-click on a pill is not a maximise gesture). **Not buildable as stated on Linux:** the spike
+  (§1.4) measured that a drag region swallows presses, so the page never sees a double-click on the
+  frame, and a `no-drag` frame would stop dragging the window. The gesture therefore only arrives
+  where the window manager gives a drag region native caption behaviour; the island's maximise
+  button is the reliable path, and the gesture's fate is an M3/M4 decision, not M1's. No custom
+  system menu is drawn; the island carries the window controls.
 
 ### 4.3 The strip (pills)
 
@@ -199,7 +203,9 @@ Each criterion is mechanically checkable.
   colour carry the meaning.
 - Sizes (tokens): `--pill-w` 26 px, `--pill-active-w` 38 px, drawn height
   `clamp(3px, --strip-h − 8px, 12px)`, `--strip-gap` 4 px, `--strip-pad` 6 px. Each pill's **hit
-  box** is the frame's full height — a 4 px drag target is not a target.
+  box** is the frame's full height — a 4 px drag target is not a target. Inside the island the pills
+  take `--pill-h-island` (M1: 16 px): the drawn-height formula is the frame's, and the island's
+  height is a separate token so a theme can set the two states apart.
 - Alignment: `--strip-align`, default `safe center`. When the row fits, it is centred; `safe` keeps
   the row's start reachable once it overflows.
 - **No shrinking.** Pills keep their widths; a row that does not fit scrolls.
@@ -380,9 +386,9 @@ Each criterion is mechanically checkable.
 | --- | --- |
 | `main/main.js` window options | `frame: false` and `transparent: true` always; `useSeparateTitlebar` removed |
 | `main/viewManager.js` | Same role; view bounds begin at the frame's bottom; the chrome layer is managed alongside |
-| `index.html` navbar/searchbar markup | Removed from the UI page; the chrome layer replaces it |
+| `index.html` navbar/searchbar markup | **Covered** by the views in M1 — unreachable but not deleted, because ~15 modules anchor to it; removed in M3, when the machinery it anchors moves into the island |
 | `js/navbar/tabBar.js` | Replaced by the strip's row |
-| `js/navbar/tabEditor.js` | Replaced by the island's address pill; its `requestPlaceholder('editMode')` path retires |
+| `js/navbar/tabEditor.js` | Replaced by the island's address pill; unreachable in M1, retires in M3, when its `requestPlaceholder('editMode')` path retires |
 | `js/searchbar/*` | UI replaced; the plugin machinery (suggestions, bangs, calculator, bookmarks, history) reused inside the island |
 | `js/navbar/navigationButtons.js`, `progressBar.js`, `bookmarkStar.js`, `menuButton.js`, `contentBlockingToggle.js`, `permissionRequests.js` | Reused as controls inside the island |
 | `js/navbar/tabColor.js` | Reused unchanged — the accent rule's source |
