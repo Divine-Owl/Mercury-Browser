@@ -206,6 +206,26 @@ const chromeDom = (app, script) => inMain(app, ({ webContents }, script) => {
   return wc.executeJavaScript(script)
 }, script)
 
+/* Every child view of the browser window, with its bounds. The tab views are what
+   the viewport question is about - which view is where, and whether anything
+   overlaps the page's first rows - and the layer is one entry among them. */
+const viewFacts = app => inMain(app, ({ BaseWindow }) => {
+  const win = BaseWindow.getAllWindows().find(w =>
+    (w.contentView ? w.contentView.children : []).some(view =>
+      view.webContents && view.webContents.getURL() === 'mercury://app/index.html'))
+  if (!win) return { found: false }
+
+  const bounds = win.getContentBounds()
+  return {
+    found: true,
+    content: { width: bounds.width, height: bounds.height },
+    views: win.getContentView().children.map(view => ({
+      url: view.webContents ? view.webContents.getURL() : null,
+      bounds: view.getBounds()
+    }))
+  }
+})
+
 /* Injects input into a webContents through the DevTools protocol.
 
    Playwright's synthetic keys never reach main's `before-input-event`, and
@@ -525,6 +545,7 @@ module.exports = {
   webContentsList,
   findByUrl,
   layerFacts,
+  viewFacts,
   chromeDom,
   cdp,
   pixels,

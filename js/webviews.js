@@ -1,12 +1,12 @@
 var urlParser = require('util/urlParser.js')
 var settings = require('util/settings/settings.js')
+/* The frame's height, shared with the chrome layer: the viewport starts at the
+   frame's bottom edge, and the two must agree about where that is. */
+var chromeTokens = require('chrome/tokens.js')
 
 /* implements selecting webviews, switching between them, and creating new ones. */
 
 var placeholderImg = document.getElementById('webview-placeholder')
-
-var windowIsMaximized = false // affects navbar height on Windows
-var windowIsFullscreen = false
 
 function captureCurrentTab (options) {
   if (tabs.get(tabs.getSelected()).private) {
@@ -150,6 +150,8 @@ const webviews = {
   },
   getViewBounds: function () {
     if (webviews.viewFullscreenMap[webviews.selectedId]) {
+      /* A fullscreen video is the window, chrome and all: the band below is not
+         subtracted here, and this branch is why. */
       return {
         x: 0,
         y: 0,
@@ -157,22 +159,21 @@ const webviews = {
         height: window.innerHeight
       }
     } else {
-      if ((window.platformType === 'linux' || window.platformType === 'windows') && !windowIsMaximized && !windowIsFullscreen) {
-        var navbarHeight = 48
-      } else {
-        var navbarHeight = 36
-      }
-
       const viewMargins = webviews.viewMargins
 
-      let position = {
-        x: 0 + Math.round(viewMargins[3]),
-        y: 0 + Math.round(viewMargins[0]) + navbarHeight,
-        width: window.innerWidth - Math.round(viewMargins[1] + viewMargins[3]),
-        height: window.innerHeight - Math.round(viewMargins[0] + viewMargins[2]) - navbarHeight
-      }
+      /* The viewport starts at the frame's bottom edge (SC3). The frame is the
+         window's own top edge, so the page is everything below it - the old navbar's
+         height is gone with the navbar, whose markup stays in the page, covered,
+         until M3 removes it. The margins stay: the find bar and the download bar
+         still borrow rows, from below the frame rather than from the top. */
+      const frame = chromeTokens.frameHeight
 
-      return position
+      return {
+        x: 0 + Math.round(viewMargins[3]),
+        y: 0 + Math.round(viewMargins[0]) + frame,
+        width: window.innerWidth - Math.round(viewMargins[1] + viewMargins[3]),
+        height: window.innerHeight - Math.round(viewMargins[0] + viewMargins[2]) - frame
+      }
     }
   },
   add: function (tabId, existingViewId) {
@@ -393,23 +394,22 @@ webviews.bindEvent('leave-html-full-screen', function (tabId) {
   webviews.resize()
 })
 
+/* The window's own maximize and fullscreen states no longer move the views: the
+   frame is the window's top edge at every size, so the only thing left for these is
+   the resize. */
 ipc.on('maximize', function () {
-  windowIsMaximized = true
   webviews.resize()
 })
 
 ipc.on('unmaximize', function () {
-  windowIsMaximized = false
   webviews.resize()
 })
 
 ipc.on('enter-full-screen', function () {
-  windowIsFullscreen = true
   webviews.resize()
 })
 
 ipc.on('leave-full-screen', function () {
-  windowIsFullscreen = false
   webviews.resize()
 })
 

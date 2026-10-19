@@ -18,7 +18,7 @@ alpha half of the claim stays with the source test rather than being faked here.
 
 const { test, expect } = require('@playwright/test')
 
-const { launchApp, inMain, ensureSettingsPage, openSettingsTab, layerFacts, chromeDom, cdp, pixels, driveWindow, focusContents, newTab, until, webContentsList, openAddressBar, enterUrl, addressInput, pressEnter, pressEscape, SHORT_SETTINGS_URL, SETTINGS_PAGE } = require('./harness.js')
+const { launchApp, inMain, ensureSettingsPage, openSettingsTab, layerFacts, viewFacts, chromeDom, cdp, pixels, driveWindow, focusContents, newTab, until, webContentsList, openAddressBar, enterUrl, addressInput, pressEnter, pressEscape, SHORT_SETTINGS_URL, SETTINGS_PAGE } = require('./harness.js')
 
 const rgbOf = hex => {
   const value = parseInt(hex.slice(1), 16)
@@ -540,5 +540,104 @@ test.describe('the address pill', () => {
     expect(paint.value.length).toBeGreaterThan(0)
     expect(paint.title.length).toBeGreaterThan(0)
     expect(paint.value).not.toContain('://')
+  })
+})
+
+/* Task 8's two boundary criteria. SC3: the viewport starts at the frame's bottom
+   edge. SC4: the page below the frame takes pointer input unchanged - which is
+   only true once nothing else is laid over the page's first rows. */
+test.describe('the viewport and the page below the frame', () => {
+  let ctx
+
+  const settingsView = async app => {
+    const facts = await viewFacts(app)
+    const view = facts.views.find(v => v.url && v.url.includes('/pages/settings/'))
+    if (!view) throw new Error('the settings page is not a view of this window')
+    return { view, content: facts.content }
+  }
+
+  /* A click counter and a scroll position in the settings page's own context, so
+     the assertion is about the page and not about anything above it. */
+  const instrument = app => inMain(app, ({ webContents }) => {
+    const wc = webContents.getAllWebContents().find(w => w.getURL().includes('/pages/settings/'))
+    if (!wc) throw new Error('the settings page is not open')
+    return wc.executeJavaScript(
+      'window.clicks = 0;' +
+      'document.addEventListener("click", function () { window.clicks++ });' +
+      'window.scrollY'
+    )
+  })
+
+  const readFromSettings = (app, expression) => inMain(app, ({ webContents }, expression) => {
+    const wc = webContents.getAllWebContents().find(w => w.getURL().includes('/pages/settings/'))
+    return wc.executeJavaScript(expression)
+  }, expression)
+
+  test.beforeAll(async () => {
+    ctx = await launchApp()
+    await openSettingsTab(ctx.ui, ctx.app)
+  })
+
+  test.afterAll(async () => {
+    await ctx.close()
+  })
+
+  test('the tab view starts at the frame’s bottom edge', async () => {
+    const { view, content } = await settingsView(ctx.app)
+
+    /* The layer's own bottom row is its hairline, so this is geometry rather than a
+       see-through pixel - a capture cannot show that nothing overlaps the page's
+       first row, and the bounds can. */
+    expect(view.bounds).toEqual({ x: 0, y: 12, width: content.width, height: content.height - 12 })
+  })
+
+  test('the page takes clicks and wheels in the rows below the frame', async () => {
+    await instrument(ctx.app)
+
+    await driveWindow(ctx.app, { op: 'focus' })
+    await focusContents(ctx.app, 'pages/settings/')
+
+    /* View y = 20 is window y = 32: below the frame's 12 px. The geometry case above
+       is what makes that row the page's - before the swap the tab view starts at the
+       old navbar's bottom, and the rows under the frame belong to the UI page. */
+    await cdp(ctx.app, 'pages/settings/', [
+      { method: 'Input.dispatchMouseEvent', params: { type: 'mousePressed', x: 200, y: 20, button: 'left', clickCount: 1 }},
+      { method: 'Input.dispatchMouseEvent', params: { type: 'mouseReleased', x: 200, y: 20, button: 'left', clickCount: 1 }}
+    ])
+
+    await until(async () => (await readFromSettings(ctx.app, 'window.clicks')) === 1, {
+      what: 'the page to receive the click'
+    })
+
+    // and the wheel, which is the half of SC4 that touches the chrome layer's absence.
+    // This page scrolls its body rather than the viewport, so that is what is read.
+    const before = await readFromSettings(ctx.app, 'document.body.scrollTop')
+    await cdp(ctx.app, 'pages/settings/', [
+      { method: 'Input.dispatchMouseEvent', params: { type: 'mouseWheel', x: 200, y: 20, deltaX: 0, deltaY: 120 }}
+    ])
+    await until(async () => (await readFromSettings(ctx.app, 'document.body.scrollTop')) > before, {
+      what: 'the page to scroll'
+    })
+  })
+
+  test('leaves the covered chrome unreachable', async () => {
+    await driveWindow(ctx.app, { op: 'focus' })
+    await focusContents(ctx.app, 'pages/settings/')
+
+    await cdp(ctx.app, 'pages/settings/', [
+      { method: 'Input.dispatchMouseEvent', params: { type: 'mousePressed', x: 200, y: 18, button: 'left', clickCount: 1 }},
+      { method: 'Input.dispatchMouseEvent', params: { type: 'mouseReleased', x: 200, y: 18, button: 'left', clickCount: 1 }}
+    ])
+
+    /* A press in the page's own rows. The old editor is under the tab view, and the
+       geometry above is what makes that true: a press here cannot reach it. */
+    await new Promise(r => setTimeout(r, 300))
+    const editor = await ctx.ui.evaluate(() => ({
+      hidden: document.getElementById('tab-editor').hidden,
+      editMode: document.body.classList.contains('is-edit-mode')
+    }))
+
+    expect(editor.hidden).toBe(true)
+    expect(editor.editMode).toBe(false)
   })
 })

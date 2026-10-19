@@ -11,6 +11,11 @@ const tabEditor = {
   input: document.getElementById('tab-editor-input'),
   star: null,
   isShown: false,
+  /* Unreachable in M1, and retired in M3. Every path that opened this editor now
+     opens the island's address pill instead (§4.4), and the tab views start at the
+     frame's bottom edge, so this element is covered by the page. It is kept because
+     ~15 modules still anchor to it and M3 rewrites them to live inside the island;
+     until then its own hide() calls are harmless and its show() has no caller. */
   show: function (tabId, editingValue, showSearchbar) {
     /* Edit mode is not available in modal mode. */
     if (modalMode.enabled()) {
