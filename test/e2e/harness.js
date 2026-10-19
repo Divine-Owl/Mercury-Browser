@@ -215,13 +215,34 @@ async function enterUrl (ui, url) {
 }
 
 /* Opens a short mercury:// URL the way a user would - through the address bar - and
-   waits for a tab to be showing the page it resolves to. */
+   waits for a tab to be showing the page it resolves to.
+
+   "Showing" includes having a title. Electron's `webContents.getTitle()` is a
+   main-process cache that lags the document's own title: on this machine the page
+   read `readyState === 'complete'` with `document.title` already set while
+   `getTitle()` still returned the URL, for up to a second when the machine was
+   loaded. Specs assert on that cached title, so the wait continues until the cache
+   catches up. A page that genuinely has no <title> keeps the URL as its title and
+   is returned after the grace period rather than hanging here - the caller's own
+   assertion is the right place to notice that. */
 async function openShortUrl (ui, app, shortUrl, expectedUrl) {
   await enterUrl(ui, shortUrl)
-  return until(
+  const tab = await until(
     async () => (await webContentsList(app)).find(wc => wc.url === expectedUrl),
     { what: `${shortUrl} to render as ${expectedUrl} in a tab`, timeout: 30000 }
   )
+
+  if (tab.title === tab.url) {
+    await until(
+      async () => {
+        const wc = (await webContentsList(app)).find(w => w.id === tab.id)
+        return wc && wc.title !== wc.url ? wc.title : null
+      },
+      { what: `${expectedUrl} to publish its title`, timeout: 5000 }
+    ).then(title => { tab.title = title }).catch(() => {})
+  }
+
+  return tab
 }
 
 const openSettingsTab = (ui, app) => openShortUrl(ui, app, SHORT_SETTINGS_URL, SETTINGS_PAGE)
