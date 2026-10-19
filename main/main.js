@@ -189,6 +189,23 @@ function createWindow (customArgs = {}) {
   return createWindowWithBounds(bounds, customArgs)
 }
 
+/* The arguments every view of this window shares. mainView and the chrome layer
+   are both created before windows.addWindow, so `windows.nextId` is still the id
+   this window will get, and the two views must agree on it: the UI page reads
+   --window-id and the chrome page may need it later. */
+function viewAdditionalArguments (customArgs) {
+  return [
+    '--user-data-path=' + userDataPath,
+    '--app-version=' + app.getVersion(),
+    '--app-name=' + app.getName(),
+    ...((isDevelopmentMode ? ['--development-mode'] : [])),
+    '--window-id=' + windows.nextId,
+    ...((windows.getAll().length === 0 ? ['--initial-window'] : [])),
+    ...(windows.hasEverCreatedWindow ? [] : ['--launch-window']),
+    ...(customArgs.initialTask ? ['--initial-task=' + customArgs.initialTask] : [])
+  ]
+}
+
 function createWindowWithBounds (bounds, customArgs) {
   const newWin = new BaseWindow({
     width: bounds.width,
@@ -219,16 +236,7 @@ function createWindowWithBounds (bounds, customArgs) {
       nodeIntegration: true,
       contextIsolation: false,
       nodeIntegrationInWorker: true, // used by ProcessSpawner
-      additionalArguments: [
-        '--user-data-path=' + userDataPath,
-        '--app-version=' + app.getVersion(),
-        '--app-name=' + app.getName(),
-        ...((isDevelopmentMode ? ['--development-mode'] : [])),
-        '--window-id=' + windows.nextId,
-        ...((windows.getAll().length === 0 ? ['--initial-window'] : [])),
-        ...(windows.hasEverCreatedWindow ? [] : ['--launch-window']),
-        ...(customArgs.initialTask ? ['--initial-task=' + customArgs.initialTask] : [])
-      ]
+      additionalArguments: viewAdditionalArguments(customArgs)
     }
   })
   mainView.webContents.loadURL(browserPage)
@@ -246,10 +254,14 @@ function createWindowWithBounds (bounds, customArgs) {
   mainView.setBounds({x: 0, y: 0, width: winBounds.width, height: winBounds.height})
   newWin.contentView.addChildView(mainView)
 
+  // Mercury's chrome rides above the page; everything about it lives in main/chromeLayer.js
+  chromeLayer.create(newWin, viewAdditionalArguments(customArgs))
+
   // sometimes getContentBounds doesn't provide correct bounds until after the window has finished loading
   mainView.webContents.once('did-finish-load', function () {
     const winBounds = newWin.getContentBounds()
     mainView.setBounds({x: 0, y: 0, width: winBounds.width, height: winBounds.height})
+    chromeLayer.updateGeometry(newWin)
   })
 
   mainView.webContents.ipc.on('set-window-title', function(e, title) {
@@ -261,6 +273,7 @@ function createWindowWithBounds (bounds, customArgs) {
     setTimeout(function () {
       const winBounds = newWin.getContentBounds()
       mainView.setBounds({x: 0, y: 0, width: winBounds.width, height: winBounds.height})
+      chromeLayer.updateGeometry(newWin)
     }, 0)
   })
 

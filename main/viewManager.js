@@ -1,3 +1,5 @@
+/* global chromeLayer */
+
 var viewMap = {} // id: view
 var viewStateMap = {} // id: view state
 
@@ -278,6 +280,8 @@ function setView (id, senderContents) {
       win.getContentView().removeChildView(viewMap[id])
     }
     windows.getState(win).selectedView = id
+    // the chrome layer went out with the views above mainView; it belongs on top
+    chromeLayer.raise(win)
   }
 }
 
@@ -373,6 +377,8 @@ function loadURLInView (id, url, win) {
     // If the view has no URL, it won't be attached yet
     if (win && id === windows.getState(win).selectedView) {
       win.getContentView().addChildView(viewMap[id])
+      // a freshly attached view lands above the chrome layer; put the layer back
+      chromeLayer.raise(win)
     }
   }
   viewMap[id].webContents.loadURL(url)

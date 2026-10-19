@@ -45,6 +45,13 @@ const NEWTAB_PAGE = 'mercury://app/pages/newtab/index.html'
 const SHORT_NEWTAB_URL = 'mercury://newtab'
 const READER_PAGE = 'mercury://app/reader/index.html'
 
+// The UI page and the chrome layer are both served from mercury://app/, so any
+// lookup by prefix can pick the wrong one. The layer is a WebContentsView, not a
+// BrowserWindow, so `app.windows()` cannot see it - everything about it is read
+// from the main process - but the exact URLs keep the two apart at every level.
+const UI_URL = 'mercury://app/index.html'
+const CHROME_PAGE = 'mercury://app/pages/chrome/index.html'
+
 /* The flags every Electron launch here needs, in one place so the two launch paths
    cannot drift.
 
@@ -126,7 +133,7 @@ async function launchApp (options = {}) {
   const app = await _electron.launch({ args, cwd: ROOT, env, timeout: 60000 })
 
   const ui = await until(
-    () => app.windows().find(page => page.url().startsWith('mercury://app/')),
+    () => app.windows().find(page => page.url() === UI_URL),
     { what: 'the browser UI window to open', timeout: 45000 }
   )
 
@@ -161,6 +168,83 @@ const webContentsList = app => inMain(app, ({ webContents }) =>
   webContents.getAllWebContents().map(wc => ({ id: wc.id, url: wc.getURL(), title: wc.getTitle() })))
 
 const findByUrl = (contents, fragment) => contents.filter(wc => wc.url.includes(fragment))
+
+/* The window's own chrome layer, read from the main process.
+
+   The browser window is found structurally - the one whose contentView holds the
+   UI page - because BaseWindow.getAllWindows() also holds the app's hidden
+   history-service window, so indexing the list is wrong. The layer is the child
+   whose URL is the chrome page; the order is returned whole so a spec can assert
+   where the layer sits rather than only that it exists. */
+const layerFacts = app => inMain(app, ({ BaseWindow }) => {
+  const win = BaseWindow.getAllWindows().find(w =>
+    (w.contentView ? w.contentView.children : []).some(view =>
+      view.webContents && view.webContents.getURL() === 'mercury://app/index.html'))
+  if (!win) return { found: false }
+
+  const children = win.getContentView().children
+  const bounds = win.getContentBounds()
+  const layer = children.find(view =>
+    view.webContents && view.webContents.getURL() === 'mercury://app/pages/chrome/index.html')
+
+  return {
+    found: true,
+    contentWidth: bounds.width,
+    contentHeight: bounds.height,
+    order: children.map(view => (view.webContents ? view.webContents.getURL() : '(no contents)')),
+    layer: layer ? { bounds: layer.getBounds() } : null,
+    layerIsLast: !!layer && children[children.length - 1] === layer
+  }
+})
+
+/* Runs an expression in the chrome page and returns its value. The chrome layer
+   is not a Playwright page, so its DOM is read this way. */
+const chromeDom = (app, script) => inMain(app, ({ webContents }, script) => {
+  const wc = webContents.getAllWebContents().find(w => w.getURL() === 'mercury://app/pages/chrome/index.html')
+  if (!wc) throw new Error('the chrome page is not open')
+  return wc.executeJavaScript(script)
+}, script)
+
+/* Injects input into a webContents through the DevTools protocol.
+
+   Playwright's synthetic keys never reach main's `before-input-event`, and
+   `webContents.sendInputEvent` is dropped unless the window is focused, so the
+   runtime specs drive the pointer and the keyboard this way: real Chromium input
+   events, delivered to whatever the page has focused. Callers must focus the
+   window (and the target webContents) first - an unfocused target drops it. */
+const cdp = (app, urlFragment, commands) => inMain(app, async ({ webContents }, { urlFragment, commands }) => {
+  const wc = webContents.getAllWebContents().find(w => w.getURL().includes(urlFragment))
+  if (!wc) throw new Error(`no webContents matching ${urlFragment}`)
+  wc.debugger.attach('1.3')
+  try {
+    for (const command of commands) {
+      await wc.debugger.sendCommand(command.method, command.params)
+    }
+  } finally {
+    wc.debugger.detach()
+  }
+  return true
+}, { urlFragment, commands })
+
+/* Samples pixels out of a view's own capture.
+
+   The bitmap is BGRA. What a capture cannot show is transparency: the page's
+   transparent areas come back opaque (measured here: white, alpha 255, where
+   js/chrome's frame's rounded corner clips the paint away), so a capture is an
+   oracle for what the page painted and not for what the window lets through.
+   The chrome specs compare pixels against the token colour for that reason.
+   No screen-level screenshot is involved: this is the view's compositor output. */
+const pixels = (app, urlFragment, points) => inMain(app, async ({ webContents }, { urlFragment, points }) => {
+  const wc = webContents.getAllWebContents().find(w => w.getURL().includes(urlFragment))
+  if (!wc) throw new Error(`no webContents matching ${urlFragment}`)
+  const image = await wc.capturePage()
+  const bitmap = image.toBitmap()
+  const size = image.getSize()
+  return points.map(({ x, y }) => {
+    const i = (y * size.width + x) * 4
+    return { x, y, b: bitmap[i], g: bitmap[i + 1], r: bitmap[i + 2], a: bitmap[i + 3] }
+  })
+}, { urlFragment, points })
 
 /* Opens the address bar if it is closed.
 
@@ -355,6 +439,12 @@ module.exports = {
   inMain,
   webContentsList,
   findByUrl,
+  layerFacts,
+  chromeDom,
+  cdp,
+  pixels,
+  UI_URL,
+  CHROME_PAGE,
   enterUrl,
   openShortUrl,
   openSettingsTab,

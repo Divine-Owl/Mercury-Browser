@@ -15,6 +15,7 @@ const modules = [
   'js/chrome/reveal.js',
   'js/chrome/chromeSettings.js',
   'main/main.js',
+  'main/chromeLayer.js',
   'main/mercuryInternalProtocol.js',
   'main/filtering.js',
   'main/viewManager.js',

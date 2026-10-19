@@ -1,9 +1,15 @@
+/* The window manager resolves IPC senders to windows, and since the chrome layer
+   is a view of its own, it is one of the senders that must resolve. */
+
+/* global chromeLayer */
+
 const windows = {
   openWindows: [],
   hasEverCreatedWindow: false,
   nextId: 1,
   windowFromContents: function (webContents) {
-    return windows.openWindows.find(w => getWindowWebContents(w.win).id === webContents.id)
+    return windows.openWindows.find(w =>
+      getWindowWebContents(w.win).id === webContents.id || chromeLayer.hasContents(w.win, webContents.id))
   },
   addWindow: function (window) {
     windows.hasEverCreatedWindow = true
