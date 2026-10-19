@@ -13,7 +13,7 @@
    native view entirely. Keeping the height in one function here is what makes
    "the box is exactly as tall as the chrome it shows" true by construction. */
 
-/* global ipc, windows, settings, WebContentsView, chromeTokens, chromeSettings */
+/* global ipc, windows, settings, WebContentsView, chromeTokens, chromeSettings, chromeReveal, getView, getWindowFromViewContents */
 
 const CHROME_PAGE_URL = 'mercury://app/pages/chrome/index.html'
 
@@ -51,6 +51,13 @@ const chromeLayer = {
     // cannot rely on the view's parent to tear the webContents down)
     win.on('closed', function () {
       chromeLayer.destroy(win)
+    })
+
+    /* A blur is not the pointer leaving - it is the window no longer being what
+       the user is looking at, and an open box has no business staying open behind
+       another window (§4.6). */
+    win.on('blur', function () {
+      revealFrom(win, { source: 'blur' })
     })
 
     view.webContents.loadURL(CHROME_PAGE_URL)
@@ -139,6 +146,45 @@ const chromeLayer = {
     chromeLayer.send(win, 'chrome-tokens', { dark, tokens })
   }
 }
+
+/* §4.6's decision, applied: a report comes in, the pure rule answers, and the box
+   moves if the answer is not 'stay'. The rule owns what the state should be and
+   this owns asking it, so neither side guesses at the other's business. */
+function revealFrom (win, report) {
+  const next = chromeReveal.next(chromeLayer.state(win), {
+    source: report.source,
+    y: report.y,
+    frameHeight: chromeTokens.frameHeight,
+    tolerance: chromeSettings.hoverTolerance.clamp(settings.get('hoverTolerance'))
+  })
+  if (next !== 'stay') {
+    chromeLayer.setState(win, next)
+  }
+}
+
+/* The chrome's own pointer. The layer starts at the window's top-left corner, so
+   its page's coordinates are already the window's. */
+ipc.on('chrome-pointer', function (e, report) {
+  const win = windows.windowFromContents(e.sender)?.win
+  if (win) {
+    revealFrom(win, { source: 'chrome', y: report.y })
+  }
+})
+
+/* The page's pointer, which is in the page's own coordinates: the view's offset
+   is what turns it into a window coordinate. A view that is not attached reports
+   from y = 0, which is the frame band - and a report from a view that is not on
+   screen cannot be about the pointer leaving the chrome, since the view is not
+   what the pointer is over. */
+ipc.on('page-pointer', function (e, report) {
+  const win = getWindowFromViewContents(e.sender)
+  if (!win) {
+    return
+  }
+  const view = getView(windows.getState(win).selectedView)
+  const viewBounds = (view && view.getBounds()) || { y: 0 }
+  revealFrom(win, { source: 'page', y: viewBounds.y + report.y })
+})
 
 /* The page announces itself once its bundle has run, which is the earliest moment
    a push can be delivered; pushing in `create` would race the page's own

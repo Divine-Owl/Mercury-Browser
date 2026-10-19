@@ -56,6 +56,7 @@ Not in M1, deliberately: strip scrolling/drag/keep-in-view and the overview (M2)
 | Wayland: no cursor position, unreliable window position/size | Every geometric assertion is relative to the window's own content bounds |
 | `capturePage()` corner probes proved clean at radius 0/12/25 px | SC1's pixel assertions use exactly this method |
 | `capturePage()` hands back an **opaque** bitmap: a transparent area of the page arrives white, alpha 255 (measured on the chrome layer's own capture), and `border-radius` does **not** clip hit testing | Corner assertions compare pixels against the frame's token colour - "the frame paints here / does not paint here" - never against alpha; the window's transparency is asserted by the source test and `getBackgroundColor()`, not by a pixel |
+| With no window manager behind the test display, the window never loses focus: `win.blur()` leaves `isFocused()` true and fires neither `focus` nor `blur` (measured) | No spec can produce a real blur. The reveal's blur case emits the event onto the window and says so, and proves the handler and the applied answer; the rule itself is `test/chromeReveal.test.js`'s |
 | Electron's `webContents.getTitle()` is a main-process cache that **lags** the document's title (measured: page `complete` and titled while the cache still returned the URL, up to ~1 s under load) | Specs that assert on a tab's title must wait for the cache; the harness's `openShortUrl` does |
 | Wheel over the frame is unverified | M2's problem (strip scrolling); M1 has no wheel behaviour |
 
@@ -350,7 +351,7 @@ win.on('blur', function () { revealFrom(win, { source: 'blur' }) })
 
 `js/chrome/default.js` gains `ipc.on('chrome-geom', (e, d) => frame.setGeom(d.state))` and `pointer.initialize()`.
 
-- [ ] **Step 1: Add failing e2e cases** to `chrome.spec.js`: (a) `win.focus()` + CDP `mouseMoved` at `(120, 6)` in the chrome page ⇒ within 2 s the layer's bounds height is 77 and the chrome page reports `document.body.classList.contains('ct-open')` and `#island.hidden === false`; (b) then CDP `mouseMoved` at `(120, 400)` in the **tab view** ⇒ height back to 12 and `ct-open` gone; (c) with the island open, `win.blur()` (or an `app.evaluate` that calls `win.blur()`) ⇒ closed.
+- [ ] **Step 1: Add failing e2e cases** to `chrome.spec.js`: (a) `win.focus()` + CDP `mouseMoved` at `(120, 6)` in the chrome page ⇒ within 2 s the layer's bounds height is 77 and the chrome page reports `document.body.classList.contains('ct-open')` and `#island.hidden === false`; (b) then CDP `mouseMoved` at `(120, 400)` in the **tab view** ⇒ height back to 12 and `ct-open` gone (each case opens the box itself, so a case that only closes it cannot pass before the feature exists); (c) with the island open, a blur ⇒ closed, delivered as an emitted event on the window because this environment cannot really blur one (fact table).
 - [ ] **Step 2: Run and watch fail.**
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Suites:** as in Task 3.

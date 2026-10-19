@@ -226,6 +226,35 @@ const cdp = (app, urlFragment, commands) => inMain(app, async ({ webContents }, 
   return true
 }, { urlFragment, commands })
 
+/* Drives the browser window from main, for the things only a real window can be
+   asked: `win.focus()` / `win.blur()`, and `win.emit(event)` for the events this
+   environment cannot produce at all.
+
+   That last case is measured, not assumed: with no window manager behind the test
+   display, `win.blur()` leaves `isFocused()` true and fires nothing, so the only
+   way to deliver a blur here is to emit it the way main itself would receive it.
+   A spec that emits proves the handler is registered and the rule's answer is
+   applied; it does not prove that the OS blurs the window. `request` is
+   `{ op: 'focus' | 'blur' }` or `{ op: 'emit', event: 'blur' }`.
+
+   The finder is written out here rather than shared with layerFacts because
+   Playwright serializes this function to run in the main process, where nothing
+   defined out here exists. BaseWindow.getAllWindows() includes the app's hidden
+   history-service window, so the browser window is found by its contentView
+   holding the UI page, never by index. */
+const driveWindow = (app, request) => inMain(app, ({ BaseWindow }, request) => {
+  const win = BaseWindow.getAllWindows().find(w =>
+    (w.contentView ? w.contentView.children : []).some(view =>
+      view.webContents && view.webContents.getURL() === 'mercury://app/index.html'))
+  if (!win) throw new Error('the browser window is not open')
+  if (request.op === 'emit') {
+    win.emit(request.event)
+  } else {
+    win[request.op]()
+  }
+  return win.isFocused()
+}, request)
+
 /* Samples pixels out of a view's own capture.
 
    The bitmap is BGRA. What a capture cannot show is transparency: the page's
@@ -443,6 +472,7 @@ module.exports = {
   chromeDom,
   cdp,
   pixels,
+  driveWindow,
   UI_URL,
   CHROME_PAGE,
   enterUrl,

@@ -25,8 +25,12 @@ if (navigator.platform === 'MacIntel') {
 
 var chromeTokens = require('chrome/tokens.js')
 var frame = require('chrome/frame.js')
+var pointer = require('chrome/pointer.js')
 
 frame.setTokens(chromeTokens.light)
+
+// the pointer on the chrome's own box: the frame band, or the island while it is open
+pointer.initialize()
 
 /* Main's pushes across M1. The two this milestone consumes are wired; the rest
    are registered now because the handshake is this file's last line and a

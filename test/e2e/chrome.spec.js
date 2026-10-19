@@ -18,7 +18,7 @@ alpha half of the claim stays with the source test rather than being faked here.
 
 const { test, expect } = require('@playwright/test')
 
-const { launchApp, inMain, ensureSettingsPage, openSettingsTab, layerFacts, chromeDom, pixels, until } = require('./harness.js')
+const { launchApp, inMain, ensureSettingsPage, openSettingsTab, layerFacts, chromeDom, cdp, pixels, driveWindow, until } = require('./harness.js')
 
 const rgbOf = hex => {
   const value = parseInt(hex.slice(1), 16)
@@ -201,5 +201,84 @@ test.describe('the chrome layer', () => {
     // rounded shape, so the see-through corner still drags the window - true of
     // every rounded transparent window, and not something this milestone changes.
     expect(paint.backdrop).toBe('rgba(0, 0, 0, 0)')
+  })
+})
+
+test.describe('the island reveals', () => {
+  let ctx
+
+  // The layer's height and the page's own account of the state it was told to
+  // show. Both halves matter: a height without the class would be a box that is
+  // 77 px tall and painting the closed chrome.
+  const chromeBox = async app => {
+    const facts = await layerFacts(app)
+    const dom = await chromeDom(app, `({
+      open: document.body.classList.contains('ct-open'),
+      islandHidden: document.getElementById('island').hidden
+    })`)
+    return { height: facts.layer ? facts.layer.bounds.height : null, ...dom }
+  }
+
+  test.beforeAll(async () => {
+    ctx = await launchApp()
+    // A tab view, not the UI page: the preload that reports the page's pointer
+    // rides on tab views (main/viewManager.js), and the settings page is the one
+    // this suite can open without a network.
+    await openSettingsTab(ctx.ui, ctx.app)
+  })
+
+  test.afterAll(async () => {
+    await ctx.close()
+  })
+
+  test('opens when the pointer enters the frame band', async () => {
+    expect((await chromeBox(ctx.app)).height).toBe(12)
+
+    await driveWindow(ctx.app, { op: 'focus' })
+    await cdp(ctx.app, 'pages/chrome/', [
+      { method: 'Input.dispatchMouseEvent', params: { type: 'mouseMoved', x: 120, y: 6 } }
+    ])
+
+    await until(async () => (await chromeBox(ctx.app)).height === 77, { what: 'the chrome box to open' })
+
+    const opened = await chromeBox(ctx.app)
+    expect(opened.open).toBe(true)
+    expect(opened.islandHidden).toBe(false)
+  })
+
+  test('closes when the pointer reports from below the box', async () => {
+    // Opens it here rather than relying on the case above: on its own, "the box
+    // is closed" would be true before any implementation existed.
+    await driveWindow(ctx.app, { op: 'focus' })
+    await cdp(ctx.app, 'pages/chrome/', [
+      { method: 'Input.dispatchMouseEvent', params: { type: 'mouseMoved', x: 120, y: 6 } }
+    ])
+    await until(async () => (await chromeBox(ctx.app)).height === 77, { what: 'the chrome box to open' })
+
+    await cdp(ctx.app, 'pages/settings/', [
+      { method: 'Input.dispatchMouseEvent', params: { type: 'mouseMoved', x: 120, y: 400 } }
+    ])
+
+    await until(async () => (await chromeBox(ctx.app)).height === 12, { what: 'the chrome box to close' })
+
+    const closed = await chromeBox(ctx.app)
+    expect(closed.open).toBe(false)
+    expect(closed.islandHidden).toBe(true)
+  })
+
+  test('closes when the window loses focus', async () => {
+    await cdp(ctx.app, 'pages/chrome/', [
+      { method: 'Input.dispatchMouseEvent', params: { type: 'mouseMoved', x: 120, y: 6 } }
+    ])
+    await until(async () => (await chromeBox(ctx.app)).height === 77, { what: 'the chrome box to open again' })
+
+    // Emitted, not blurred: with no window manager behind the test display,
+    // win.blur() leaves the window focused and fires nothing (measured), so the
+    // real event cannot be produced here. This proves the handler is registered
+    // and that the rule's answer is applied to the layer; the rule itself - an
+    // open box closes, a closed one is left alone - is test/chromeReveal.test.js's.
+    await driveWindow(ctx.app, { op: 'emit', event: 'blur' })
+
+    await until(async () => (await chromeBox(ctx.app)).height === 12, { what: 'the blur to close the box' })
   })
 })
