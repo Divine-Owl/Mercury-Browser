@@ -43,7 +43,7 @@ test('nothing reaches a minbrowser host while the app runs', async () => {
     // ---- first, prove the recorder is in the app's path.
     // A plain-HTTP page is the cheapest way in: it arrives as an absolute-URI
     // request line, so the proxy knows the host without needing a TLS handshake.
-    await enterUrl(ctx.ui, 'http://example.com/')
+    await enterUrl(ctx.ui, ctx.app, 'http://example.com/')
 
     await until(() => proxy.hosts().some(host => host.endsWith('example.com')), {
       what: 'the proxy to see the page the spec asked for (without this the assertion below is vacuous)',

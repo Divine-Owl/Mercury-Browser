@@ -127,6 +127,10 @@ const chromeLayer = {
        would cut the animation off at its edge. */
     if (state === 'closed') {
       chromeLayer.updateGeometry(win, false)
+      /* The pill had the focus, and the page is what the user is looking at now:
+         a box that closed without handing it back would leave the window with
+         nothing focused in it. */
+      returnFocusToPage(win)
       layer.shrinkTimer = setTimeout(function () {
         layer.shrinkTimer = null
         chromeLayer.updateGeometry(win)
@@ -187,6 +191,13 @@ const chromeLayer = {
 /* §4.6's decision, applied: a report comes in, the pure rule answers, and the box
    moves if the answer is not 'stay'. The rule owns what the state should be and
    this owns asking it, so neither side guesses at the other's business. */
+function returnFocusToPage (win) {
+  const view = getView(windows.getState(win).selectedView)
+  if (view && !view.webContents.isDestroyed()) {
+    view.webContents.focus()
+  }
+}
+
 function revealFrom (win, report) {
   const next = chromeReveal.next(chromeLayer.state(win), {
     source: report.source,
@@ -240,13 +251,32 @@ ipc.on('chrome-tabs', function (e, summary) {
   chromeLayer.pushTabs(win)
 })
 
-/* A command from the chrome layer goes to the page that owns the tabs. The layer
+/* A request to edit the address comes from the UI page, which cannot know whether
+   the box is out: main is the one party that does, so the box is opened first
+   (R7) and the pill is told afterwards. This is not relayed to the UI page - the
+   UI page has no part in it. */
+ipc.on('chrome-focus-address', function (e, data) {
+  const win = windows.windowFromContents(e.sender)?.win
+  if (!win) {
+    return
+  }
+  chromeLayer.setState(win, 'open')
+  chromeLayer.send(win, 'chrome-focus-address', { value: (data && data.value) || null })
+})
+
+/* A command from the chrome layer. `retract` is main's own business - the UI page
+   has no state to close - so it is answered here and the rest is relayed. The layer
    never talks to the UI page directly and neither knows the other's address. */
 ipc.on('chrome-action', function (e, data) {
   const win = windows.windowFromContents(e.sender)?.win
-  if (win) {
-    getWindowWebContents(win).send('chrome-action', data)
+  if (!win) {
+    return
   }
+  if (data && data.action === 'retract') {
+    chromeLayer.setState(win, 'closed')
+    return
+  }
+  getWindowWebContents(win).send('chrome-action', data)
 })
 
 /* The page announces itself once its bundle has run, which is the earliest moment

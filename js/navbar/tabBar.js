@@ -9,6 +9,7 @@ const settings = require('util/settings/settings.js')
 const urlParser = require('util/urlParser.js')
 
 const tabEditor = require('navbar/tabEditor.js')
+const chromeBridge = require('chromeBridge.js')
 const progressBar = require('navbar/progressBar.js')
 const permissionRequests = require('navbar/permissionRequests.js')
 
@@ -100,7 +101,7 @@ const tabBar = {
       if (tabs.getSelected() !== data.id) { // else switch to tab if it isn't focused
         tabBar.events.emit('tab-selected', data.id)
       } else { // the tab is focused, edit tab instead
-        tabEditor.show(data.id)
+        chromeBridge.focusAddress()
       }
     })
 

@@ -6,6 +6,7 @@ var focusMode = require('focusMode.js')
 var tabBar = require('navbar/tabBar.js')
 var tabEditor = require('navbar/tabEditor.js')
 var searchbar = require('searchbar/searchbar.js')
+var chromeBridge = require('chromeBridge.js')
 
 /* creates a new task */
 
@@ -47,7 +48,19 @@ function addTab (tabId = tabs.add(), options = {}) {
       focusWebview: options.enterEditMode === false
     })
     if (options.enterEditMode !== false) {
-      tabEditor.show(tabId)
+      /* The island's address pill is the editor now (§4.4): a new tab asks for
+         it, and main opens the box before the pill is told (R7).
+
+         §4.11's exception, handed over by sessionRestore: the first tab of a
+         fresh profile does not ask. That tab is the new tab page, and the page
+         is what explains the gestures - opening the box on it would put the tour
+         inside the thing being toured. The flag is consumed here, so the next
+         tab, a real Ctrl+T, asks like any other. */
+      const firstRun = window.firstRunTab
+      window.firstRunTab = false
+      if (!firstRun) {
+        chromeBridge.focusAddress()
+      }
     }
   } else {
     tabBar.getTab(tabId).scrollIntoView()

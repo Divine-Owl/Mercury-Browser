@@ -18,7 +18,7 @@ alpha half of the claim stays with the source test rather than being faked here.
 
 const { test, expect } = require('@playwright/test')
 
-const { launchApp, inMain, ensureSettingsPage, openSettingsTab, layerFacts, chromeDom, cdp, pixels, driveWindow, focusContents, newTab, until } = require('./harness.js')
+const { launchApp, inMain, ensureSettingsPage, openSettingsTab, layerFacts, chromeDom, cdp, pixels, driveWindow, focusContents, newTab, until, webContentsList, openAddressBar, enterUrl, addressInput, pressEnter, pressEscape, SHORT_SETTINGS_URL, SETTINGS_PAGE } = require('./harness.js')
 
 const rgbOf = hex => {
   const value = parseInt(hex.slice(1), 16)
@@ -326,13 +326,18 @@ test.describe('the island reveals', () => {
     expect(surface.shadow).not.toBe('none')
     expect(surface.radius).toBe('26.5px')
 
-    // and the raster agrees: a pixel in the island's body - the middle of the row,
-    // below the pills' band - takes the island's colour. Polled, not read once: a
-    // capture is the last frame the view presented, and the style had just changed.
+    // and the raster agrees. The island drops in over §4.12's 140 ms, so the layout
+    // is waited for first: a capture is the last frame the view presented, and a
+    // read taken during the transition reads the frame from before it.
+    await until(async () => {
+      const height = await chromeDom(ctx.app, 'document.getElementById("island").getBoundingClientRect().height')
+      return Math.abs(height - 53) < 0.5
+    }, { what: 'the island to finish dropping in' })
+
     const { layer } = await layerFacts(ctx.app)
     const expected = rgbOf(surface.token)
     await until(async () => {
-      const [px] = await pixels(ctx.app, 'pages/chrome/', [{ x: Math.round(layer.bounds.width / 2), y: 60 }])
+      const [px] = await pixels(ctx.app, 'pages/chrome/', [{ x: Math.round(layer.bounds.width / 2), y: 22 }])
       return px.r === expected.r && px.g === expected.g && px.b === expected.b
     }, { what: 'the island’s pixels to take its own surface colour' })
 
@@ -394,10 +399,34 @@ test.describe('the strip', () => {
   })
 
   test('gives the pill the row’s height and paints a bar inside it', async () => {
+    // The case above opened the box by opening a tab (§4.11: a new tab asks for the
+    // pill), and the strip lives inside the island while it is out. Closing it is
+    // what a user does, and it is what puts the strip back in the frame, where these
+    // two numbers are the frame's.
+    await driveWindow(ctx.app, { op: 'emit', event: 'blur' })
+    await until(async () => !(await chromeDom(ctx.app, 'document.body.classList.contains("ct-open")')), {
+      what: 'the box to close'
+    })
+
     const [first] = await pills(ctx.app)
 
     expect(first.hitHeight).toBe(12) // the frame's height: the press target
     expect(first.barHeight).toBe(4) // --pill-h-frame: what is drawn
+  })
+
+  test('paints a taller bar inside the island, whose row is taller', async () => {
+    await openAddressBar(ctx.ui, ctx.app)
+
+    // The island drops in over §4.12's 140 ms, and a bar measured mid-transition
+    // is a bar measured at the wrong scale.
+    await until(async () => (await pills(ctx.app))[0].barHeight === 16, {
+      what: 'the island’s pill bar to settle at 16 px'
+    })
+
+    const [first] = await pills(ctx.app)
+
+    expect(first.barHeight).toBe(16) // --pill-h-island: §4.3's separate token
+    expect(first.hitHeight).toBeGreaterThan(12) // the island's row, not the frame's
   })
 
   test('switches tabs when a pill is clicked', async () => {
@@ -430,5 +459,86 @@ test.describe('the strip', () => {
     expect(active.selected).toBe('true')
     expect(inactive.selected).toBe('false')
     expect(active.bar).not.toBe(inactive.bar)
+  })
+})
+
+/* The island's address pill (§4.4). This suite drives it the way a user does -
+   a press on the pill, text, Enter or Escape - because the pill is in the chrome
+   layer and only CDP input reaches it. */
+test.describe('the address pill', () => {
+  let ctx
+
+  /* The webContents holding the input focus, which is what proves the pill had
+     it (and that the page got it back). */
+  const focusedUrl = app => inMain(app, ({ webContents }) => {
+    const wc = webContents.getFocusedWebContents()
+    return wc ? wc.getURL() : null
+  })
+
+  test.beforeAll(async () => {
+    ctx = await launchApp()
+  })
+
+  test.afterAll(async () => {
+    await ctx.close()
+  })
+
+  test('types a URL into the pill and navigates', async () => {
+    // The rewritten helper is this case's own proof: it is the path a user takes,
+    // from a closed chrome to a page rendered in a tab.
+    await enterUrl(ctx.ui, ctx.app, SHORT_SETTINGS_URL)
+
+    await until(
+      async () => (await webContentsList(ctx.app)).find(wc => wc.url === SETTINGS_PAGE),
+      { what: `${SHORT_SETTINGS_URL} to render as ${SETTINGS_PAGE}`, timeout: 30000 }
+    )
+  })
+
+  test('holds the focus while the island is open, and hands it to the page after Enter', async () => {
+    await openAddressBar(ctx.ui, ctx.app)
+    expect(await focusedUrl(ctx.app)).toContain('pages/chrome/index.html')
+
+    await enterUrl(ctx.ui, ctx.app, SHORT_SETTINGS_URL)
+    await until(
+      async () => (await webContentsList(ctx.app)).find(wc => wc.url === SETTINGS_PAGE),
+      { what: 'the page to render in a tab' }
+    )
+
+    await until(async () => (await focusedUrl(ctx.app)) !== null &&
+      !(await focusedUrl(ctx.app)).includes('pages/chrome/'), { what: 'the focus to leave the chrome layer' })
+  })
+
+  test('Escape cancels what was typed and changes nothing', async () => {
+    await openAddressBar(ctx.ui, ctx.app)
+    const before = (await webContentsList(ctx.app)).map(wc => wc.url).sort()
+
+    await addressInput(ctx.ui, ctx.app, 'http://example.com/should-not-open')
+    await pressEscape(ctx.app) // cancels the edit
+    await pressEscape(ctx.app) // retracts
+
+    await until(async () => !(await chromeDom(ctx.app, 'document.body.classList.contains("ct-open")')), {
+      what: 'the box to close'
+    })
+
+    const after = (await webContentsList(ctx.app)).map(wc => wc.url).sort()
+    expect(after).toEqual(before)
+  })
+
+  test('shows the page it is resting on', async () => {
+    // The chrome page is still loading when this suite starts, so the pill is
+    // waited for rather than read on the first try.
+    await until(async () => chromeDom(ctx.app, '!!document.getElementById("address-input")'), {
+      what: 'the chrome page to have its address pill'
+    })
+
+    const paint = await chromeDom(ctx.app, `({
+      value: document.getElementById('address-input').value,
+      title: document.getElementById('address').title
+    })`)
+
+    // the domain at rest, the full URL as the tooltip - both from the active tab
+    expect(paint.value.length).toBeGreaterThan(0)
+    expect(paint.title.length).toBeGreaterThan(0)
+    expect(paint.value).not.toContain('://')
   })
 })

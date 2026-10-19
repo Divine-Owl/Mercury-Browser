@@ -13,7 +13,13 @@
    matches the thing being published - a paint the user can see. */
 
 const ipc = require('electron').ipcRenderer
-var browserUI = require('browserUI.js')
+var urlParser = require('util/urlParser.js')
+
+/* No require of browserUI, searchbar or webviews at the top of this file. This
+   module loads first (js/default.js), and those three load the modules that talk
+   back to it - a top-level require here would hand them this module half-loaded,
+   and `browserUI.switchToTab` would stay undefined for the life of the page. They
+   are required inside applyAction instead, where a require is a cache read. */
 
 var chromeBridge = {
   pending: false,
@@ -67,6 +73,7 @@ var chromeBridge = {
     }
 
     var selected = tabs.getSelected()
+    var active = tabs.get(selected)
     return {
       tabs: tabs.get().map(function (tab) {
         return {
@@ -75,14 +82,33 @@ var chromeBridge = {
           title: tab.title || '',
           accent: (tab.themeColor && tab.themeColor.color) || (tab.backgroundColor && tab.backgroundColor.color) || null
         }
-      })
+      }),
+      /* The address pill's two states (§4.4): the active tab's registrable domain
+         at rest, its full URL on hover and while editing. The favicon is not in
+         the tab state yet, so the pill shows none until a milestone supplies one. */
+      atRest: active ? urlParser.getDomain(active.url) : '',
+      fullUrl: active ? active.url : '',
+      favicon: active && active.favicon ? active.favicon : null
     }
+  },
+
+  /* The island's address pill is the only editor now, so every path that used to
+     open the old one opens this one. Main is the only party that knows whether
+     the box is out, so the request goes to it and the pill is told after the box
+     is open (R7) - which is also why this is not `chrome-action`: main, not the
+     UI page, owns that state. */
+  focusAddress: function (value) {
+    ipc.send('chrome-focus-address', { value: value || null })
   },
 
   applyAction: function (data) {
     if (!data) {
       return
     }
+
+    var browserUI = require('browserUI.js')
+    var searchbar = require('searchbar/searchbar.js')
+    var webviews = require('webviews.js')
 
     switch (data.action) {
       case 'selectTab':
@@ -93,6 +119,14 @@ var chromeBridge = {
         if (tabs.get(data.tabId)) {
           browserUI.switchToTab(data.tabId)
         }
+        break
+
+      case 'navigate':
+        /* The UI page's own submit path, not a second one: this is the event the
+           old editor emitted, and it is what parses the value and hands it to the
+           view manager. */
+        searchbar.events.emit('url-selected', { url: data.value, background: false })
+        webviews.focus()
         break
     }
   }

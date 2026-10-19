@@ -5,8 +5,8 @@ var bangsPlugin = require('searchbar/bangsPlugin.js')
 var places = require('places/places.js')
 var urlParser = require('util/urlParser.js')
 var formatRelativeDate = require('util/relativeDate.js')
+var chromeBridge = require('chromeBridge.js')
 
-var tabEditor = require('navbar/tabEditor.js')
 var bookmarkEditor = require('searchbar/bookmarkEditor.js')
 
 const maxTagSuggestions = 12
@@ -95,7 +95,7 @@ const bookmarkManager = {
 
     parsedText.tags.forEach(function (tag) {
       tagBar.appendChild(bookmarkEditor.getTagElement(tag, true, function () {
-        tabEditor.show(tabs.getSelected(), '!bookmarks ' + text.replace('#' + tag, '').trim())
+        chromeBridge.focusAddress('!bookmarks ' + text.replace('#' + tag, '').trim())
       }, {
         autoRemove: false,
         onModify: () => bookmarkManager.showBookmarks(text, input, event)
@@ -106,7 +106,7 @@ const bookmarkManager = {
       suggestedTags.forEach(function (suggestion, index) {
         var el = bookmarkEditor.getTagElement(suggestion, false, function () {
           var needsSpace = text.slice(-1) !== ' ' && text.slice(-1) !== ''
-          tabEditor.show(tabs.getSelected(), '!bookmarks ' + text + (needsSpace ? ' #' : '#') + suggestion + ' ')
+          chromeBridge.focusAddress('!bookmarks ' + text + (needsSpace ? ' #' : '#') + suggestion + ' ')
         }, {
           onModify: () => bookmarkManager.showBookmarks(text, input, event)
         })

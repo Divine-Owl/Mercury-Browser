@@ -15,10 +15,14 @@
   <body class="chrome ct-closed">
     <div id="frame"><div id="strip"></div></div>
 
-    <!-- the strip is re-parented in here while the island is open (§4.4). No
-         hidden attribute: the closed state is the stylesheet's default, so the
-         island can drop in when body.ct-open arrives instead of appearing. -->
-    <div id="island"></div>
+    <!-- the strip is re-parented in here while the island is open (§4.4), before the
+         address pill, so the row reads [tab pills] [address pill] [controls]. -->
+    <div id="island">
+      <div id="address">
+        <img id="address-favicon" alt="" />
+        <input id="address-input" readonly autocomplete="off" spellcheck="false" />
+      </div>
+    </div>
 
     <script src="/dist/chrome.js"></script>
   </body>

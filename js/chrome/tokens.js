@@ -15,12 +15,14 @@
    The island is a **lifted surface**, not a second copy of the frame's colour: it
    carries its own --island-bg (a step off --frame-bg), a --island-border and a
    deeper --island-shadow, which is what makes it read as an object over the page
-   instead of a hole in the frame. The dark variant keeps §4.8's AMOLED frame and
-   lifts the island off it (the maintainer's call of 2026-10-19, after comparing
-   this table against the layering spike's: the spike's island was a surface with
-   its own depth, and black-on-black had thrown that away). --island-radius is the
-   capsule rule - half the island's height, so the row's ends are semicircles; a
-   theme that wants a rounded rectangle pins a literal instead.
+   instead of a hole in the frame. --address-bg is the same idea one level in: the
+   address pill's own surface, a step off the island it sits on. The dark variant
+   keeps §4.8's AMOLED frame and lifts the island off it (the maintainer's call of
+   2026-10-19, after comparing this table against the layering spike's: the spike's
+   island was a surface with its own depth, and black-on-black had thrown that
+   away). --island-radius is the capsule rule - half the island's height, so the
+   row's ends are semicircles; a theme that wants a rounded rectangle pins a
+   literal instead.
 
    The numbers main needs are fields beside the CSS strings (the tests assert the
    two agree) - including §4.12's motion, because the box is kept tall until the
@@ -57,6 +59,7 @@ var chromeTokens = {
     '--island-border': 'rgba(0, 0, 0, 0.10)',
     '--island-shadow': '0 16px 46px rgba(0, 0, 0, 0.16), 0 2px 8px rgba(0, 0, 0, 0.10)',
     '--island-radius': 'calc(var(--island-h) / 2)',
+    '--address-bg': '#f1f1f4',
     '--r-window': '12px',
     '--r-page': '20px',
     '--strip-gap': '4px',
@@ -93,6 +96,7 @@ var chromeTokens = {
     '--island-border': 'rgba(255, 255, 255, 0.14)',
     '--island-shadow': '0 16px 46px rgba(0, 0, 0, 0.62), 0 2px 8px rgba(0, 0, 0, 0.45)',
     '--island-radius': 'calc(var(--island-h) / 2)',
+    '--address-bg': '#1a1c22',
     '--r-window': '12px',
     '--r-page': '20px',
     '--strip-gap': '4px',

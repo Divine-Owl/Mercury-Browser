@@ -7,7 +7,9 @@ var focusMode = require('focusMode.js')
 var modalMode = require('modalMode.js')
 var findinpage = require('findinpage.js')
 var PDFViewer = require('pdfViewer.js')
-var tabEditor = require('navbar/tabEditor.js')
+/* The island's address pill replaces the old editor on every "open the editor"
+   path (§4.4); the old editor's own element stays in the DOM, covered, until M3. */
+var chromeBridge = require('chromeBridge.js')
 var readerView = require('readerView.js')
 var taskOverlay = require('taskOverlay/taskOverlay.js')
 
@@ -51,15 +53,15 @@ module.exports = {
     })
 
     ipc.on('openEditor', function () {
-      tabEditor.show(tabs.getSelected())
+      chromeBridge.focusAddress()
     })
 
     ipc.on('showBookmarks', function () {
-      tabEditor.show(tabs.getSelected(), '!bookmarks ')
+      chromeBridge.focusAddress('!bookmarks ')
     })
 
     ipc.on('showHistory', function () {
-      tabEditor.show(tabs.getSelected(), '!history ')
+      chromeBridge.focusAddress('!history ')
     })
 
     ipc.on('addTab', function (e, data) {

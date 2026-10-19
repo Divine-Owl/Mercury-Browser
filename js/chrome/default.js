@@ -27,6 +27,7 @@ var chromeTokens = require('chrome/tokens.js')
 var frame = require('chrome/frame.js')
 var pointer = require('chrome/pointer.js')
 var strip = require('chrome/strip.js')
+var address = require('chrome/address.js')
 
 frame.setTokens(chromeTokens.light)
 
@@ -36,11 +37,14 @@ pointer.initialize()
 // the strip's pills: one row, delegated press
 strip.initialize()
 
-/* Main's pushes across M1. The three this milestone consumes are wired; the rest
+// the island's address pill: the only place a URL is typed (§4.4)
+address.initialize()
+
+/* Main's pushes across M1. The two this milestone consumes are wired; the rest
    are registered now because the handshake is this file's last line and a
    message that arrives with no listener is lost - the modules that read them
-   arrive with the tasks that own them (chrome-nav-state and chrome-focus-address
-   in Task 6, chrome-window-state in Task 7). */
+   arrive with the tasks that own them (chrome-nav-state and chrome-window-state
+   in Task 7). */
 ipc.on('chrome-tokens', function (e, data) {
   frame.setTokens(data.tokens)
 })
@@ -51,11 +55,14 @@ ipc.on('chrome-geom', function (e, data) {
 
 ipc.on('chrome-tabs', function (e, summary) {
   strip.update(summary)
+  address.update(summary)
 })
 
-ipc.on('chrome-nav-state', function () { /* the island's navigation controls, Task 6 */ })
+ipc.on('chrome-nav-state', function () { /* the island's navigation controls, Task 7 */ })
 ipc.on('chrome-window-state', function () { /* the island's window controls, Task 7 */ })
-ipc.on('chrome-focus-address', function () { /* the address pill, Task 6 */ })
+ipc.on('chrome-focus-address', function (e, data) {
+  address.focus(data && data.value)
+})
 
 /* The handshake: main pushes tokens and geometry on it, so nothing may be
    registered after it. */

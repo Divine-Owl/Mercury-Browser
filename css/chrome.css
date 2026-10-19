@@ -16,6 +16,10 @@ body {
   margin: 0;
   overflow: hidden;
   background: transparent;
+  /* The page's own type. Not a colour, so it is not a token - and §4.10's contract
+     has no font in it; a theme that wants one adds the token with it. */
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--text);
 }
 
 /* The frame: the whole band drags the window (§4.2), and the pills opt out of
@@ -164,4 +168,56 @@ body.ct-open #island {
 #island button,
 #island input {
   -webkit-app-region: no-drag;
+}
+
+/* The address pill (§4.4): the island's middle element, and the only place a URL
+   is typed. A surface a step off the island it sits on - the same lift as the
+   island has off the frame - so an editable field reads as a field rather than as
+   one more pill. It grows to fill the row: the controls (Task 7) take what is
+   left, and the pills take only what they need. */
+#address {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 60px;
+  height: 36px;
+  padding: 0 12px 0 8px;
+  border-radius: 18px;
+  background: var(--address-bg);
+  overflow: hidden;
+  -webkit-app-region: no-drag;
+}
+
+/* No source yet: the tab state carries no favicon in M1, so the img stays out of
+   the row rather than showing a broken one. A milestone that supplies one adds the
+   class, and the chip's colour goes with it. */
+#address-favicon {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  display: none;
+}
+
+#address.has-favicon #address-favicon {
+  display: block;
+}
+
+#address-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  cursor: default;
+}
+
+/* A resting field is not a press target for typing; an editing one is. */
+#address-input:focus {
+  cursor: text;
 }

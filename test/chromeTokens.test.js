@@ -26,6 +26,7 @@ const CONTRACT_KEYS = [
   '--island-shadow',
   '--island-radius',
   '--island-border',
+  '--address-bg',
   '--r-window',
   '--r-page',
   '--strip-gap',

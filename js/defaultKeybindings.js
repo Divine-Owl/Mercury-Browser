@@ -4,6 +4,7 @@ var browserUI = require('browserUI.js')
 var focusMode = require('focusMode.js')
 var modalMode = require('modalMode.js')
 var tabEditor = require('navbar/tabEditor.js')
+var chromeBridge = require('chromeBridge.js')
 var urlParser = require('util/urlParser.js')
 var keyMapModule = require('util/keyMap.js')
 var settings = require('util/settings/settings.js')
@@ -66,12 +67,12 @@ const defaultKeybindings = {
     })
 
     keybindings.defineShortcut('enterEditMode', function (e) {
-      tabEditor.show(tabs.getSelected())
+      chromeBridge.focusAddress()
       return false
     })
 
     keybindings.defineShortcut('runShortcut', function (e) {
-      tabEditor.show(tabs.getSelected(), '!')
+      chromeBridge.focusAddress('!')
     })
 
     keybindings.defineShortcut('closeTab', function (e) {
@@ -105,12 +106,12 @@ const defaultKeybindings = {
     })
 
     keybindings.defineShortcut('addToFavorites', function (e) {
-      tabEditor.show(tabs.getSelected(), null, false) // we need to show the bookmarks button, which is only visible in edit mode
+      chromeBridge.focusAddress() // the pill is the editor now; the bookmark control is still the old one until M3
       tabEditor.container.querySelector('.bookmarks-button').click()
     })
 
     keybindings.defineShortcut('showBookmarks', function () {
-      tabEditor.show(tabs.getSelected(), '!bookmarks ')
+      chromeBridge.focusAddress('!bookmarks ')
     })
 
     // cmd+x should switch to tab x. Cmd+9 should switch to the last tab
@@ -267,7 +268,7 @@ const defaultKeybindings = {
     })
 
     keybindings.defineShortcut('showHistory', function () {
-      tabEditor.show(tabs.getSelected(), '!history ')
+      chromeBridge.focusAddress('!history ')
     })
 
     keybindings.defineShortcut('copyPageURL', function () {

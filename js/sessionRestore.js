@@ -1,6 +1,6 @@
 var browserUI = require('browserUI.js')
 var webviews = require('webviews.js')
-var tabEditor = require('navbar/tabEditor.js')
+var chromeBridge = require('chromeBridge.js')
 var tabState = require('tabState.js')
 var settings = require('util/settings/settings.js')
 var taskOverlay = require('taskOverlay/taskOverlay.js')
@@ -75,6 +75,9 @@ const sessionRestore = {
       if (!savedStringData) {
         tasks.setSelected(tasks.add())
 
+        /* §4.11: a fresh profile's first tab is the new tab page, and that page is
+           the tour - so addTab is told not to open the box for it. */
+        window.firstRunTab = true
         browserUI.addTab(tasks.getSelected().tabs.add())
         return
       }
@@ -85,6 +88,9 @@ const sessionRestore = {
       if ((data.version && data.version !== 2) || (data.state && data.state.tasks && data.state.tasks.length === 0)) {
         tasks.setSelected(tasks.add())
 
+        /* Also a single new tab where the user has to read the error page, not
+           type into the pill - §4.11's "the page explains itself". */
+        window.firstRunTab = true
         browserUI.addTab(tasks.getSelected().tabs.add())
         return
       }
@@ -115,7 +121,7 @@ const sessionRestore = {
       if (tasks.getSelected().tabs.isEmpty() || startupConfigOption === 1) {
         browserUI.switchToTask(mostRecentTasks[0].id)
         if (tasks.getSelected().tabs.isEmpty()) {
-          tabEditor.show(tasks.getSelected().tabs.getSelected())
+          chromeBridge.focusAddress()
         }
       } else {
         window.createdNewTaskOnStartup = true
@@ -123,7 +129,7 @@ const sessionRestore = {
         var lastTask = tasks.byIndex(tasks.getLength() - 1)
         if (lastTask && lastTask.tabs.isEmpty() && !lastTask.name) {
           browserUI.switchToTask(lastTask.id)
-          tabEditor.show(lastTask.tabs.getSelected())
+          chromeBridge.focusAddress()
         } else {
           browserUI.addTask()
         }
@@ -172,8 +178,12 @@ const sessionRestore = {
       })
     if (newTaskCandidates.length > 0) {
       browserUI.switchToTask(newTaskCandidates[0].id)
-      tabEditor.show(tasks.getSelected().tabs.getSelected())
+      chromeBridge.focusAddress()
     } else {
+      /* A fresh profile: this addTask is the first tab of the session, and it is
+         the new tab page. §4.11 keeps the box retracted for it - the page is the
+         tour - so addTab is told not to ask, once. */
+      window.firstRunTab = true
       browserUI.addTask()
     }
   },

@@ -156,7 +156,7 @@ test.describe('a running Mercury', () => {
     // exercises the whole path rather than the static shell: fetch the URL it was
     // given, parse it, render the result.
     const readerUrl = `${READER_PAGE}?url=${encodeURIComponent(NEWTAB_PAGE)}`
-    await enterUrl(ctx.ui, readerUrl)
+    await enterUrl(ctx.ui, ctx.app, readerUrl)
 
     const facts = await until(async () => {
       const f = await readerPageFacts(ctx.app, readerUrl)

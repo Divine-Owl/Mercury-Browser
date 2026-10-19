@@ -1,4 +1,5 @@
 var tabEditor = require('navbar/tabEditor.js')
+var chromeBridge = require('chromeBridge.js')
 var settings = require('util/settings/settings.js')
 
 var searchbar = require('searchbar/searchbar.js')
@@ -200,7 +201,7 @@ function initialize () {
 
       if ((!bang || !bang.isAction) && url.split(' ').length === 1 && !url.endsWith(' ')) {
         // the bang is non-custom or a custom bang that requires search text, so add a space after it
-        tabEditor.show(tabs.getSelected(), url + ' ')
+        chromeBridge.focusAddress(url + ' ')
         return true
       } else if (bang) {
         // there is a custom bang that is an action or has search text, so it can be run

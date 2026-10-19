@@ -5,6 +5,7 @@ var keybindings = require('keybindings.js')
 var browserUI = require('browserUI.js')
 var tabBar = require('navbar/tabBar.js')
 var tabEditor = require('navbar/tabEditor.js')
+var chromeBridge = require('chromeBridge.js')
 var focusMode = require('focusMode.js')
 var modalMode = require('modalMode.js')
 var keyboardNavigationHelper = require('util/keyboardNavigationHelper.js')
@@ -34,7 +35,7 @@ function addTaskFromMenu () {
   taskOverlay.show()
   setTimeout(function () {
     taskOverlay.hide()
-    tabEditor.show(tabs.getSelected())
+    chromeBridge.focusAddress()
   }, 600)
 }
 
@@ -410,7 +411,7 @@ var taskOverlay = {
     addTaskButton.addEventListener('click', function (e) {
       browserUI.addTask()
       taskOverlay.hide()
-      tabEditor.show(tabs.getSelected())
+      chromeBridge.focusAddress()
     })
 
     taskOverlayNavbar.addEventListener('click', function () {

@@ -137,13 +137,14 @@ async function launchApp (options = {}) {
     { what: 'the browser UI window to open', timeout: 45000 }
   )
 
-  // The app opens the address bar on its empty first tab shortly after the UI
-  // appears. Waiting for that here settles the one piece of startup state the specs
-  // would otherwise race against; it is not an assertion, so a timeout is not a
-  // failure - openAddressBar opens the bar itself if it is closed.
+  // Startup no longer opens an editor: §4.11 keeps the island retracted on the first
+  // tab, and the new tab page is the tour. What settles here is the chrome layer
+  // being up, which the specs that read it would otherwise race against; it is not
+  // an assertion, so a timeout is not a failure.
   await until(
-    async () => !(await ui.evaluate(() => document.getElementById('tab-editor').hidden)),
-    { what: 'the address bar to open on the first tab', timeout: 10000 }
+    async () => inMain(app, ({ webContents }) => webContents.getAllWebContents()
+      .some(wc => wc.getURL() === CHROME_PAGE)),
+    { what: 'the chrome layer to be up', timeout: 10000 }
   ).catch(() => {})
 
   const userData = await app.evaluate(({ app }) => app.getPath('userData'))
@@ -300,56 +301,86 @@ const pixels = (app, urlFragment, points) => inMain(app, async ({ webContents },
   })
 }, { urlFragment, points })
 
-/* Opens the address bar if it is closed.
+/* Opens the island, because the address pill is inside it.
+
+   Driven as a user drives it: focus the window, put the pointer on the frame's
+   band, and wait for the chrome page to say it is out. CDP for the pointer
+   because that is the only injection this machine delivers (see the fact table
+   in the M1 plan); Playwright's synthetic keys are not involved here at all.
 
    Not with a keystroke. Min routes shortcuts through `before-input-event` in the
    main process (see the comment at the top of js/keybindings.js), and Playwright's
    synthetic key events are delivered straight to the renderer, so the app never
-   sees them: Ctrl+T and Ctrl+L do nothing here, which was worth discovering before
-   the specs relied on them. A mouse click is an ordinary DOM event and does work.
+   sees them: Ctrl+T and Ctrl+L do nothing here. */
+async function openAddressBar (ui, app) {
+  /* The page's bundle is what reports the pointer, and it runs after the layer's
+     webContents exists - so a move delivered too early is a move nobody hears.
+     Waiting for the load settles that, the same way the old helper's wait for the
+     editor settled the old one. */
+  await until(async () => chromeDom(app, 'document.readyState === "complete"'), {
+    what: 'the chrome page to finish loading'
+  })
 
-   On a fresh launch the editor is already open on the empty first tab, so there is
-   nothing to click. Afterwards it is hidden behind the page, and clicking the
-   focused tab's title reopens it (js/navbar/tabBar.js's click handler calls
-   tabEditor.show). Only ever clicked while hidden, because the editor overlays the
-   tab strip and would swallow the click. */
-async function openAddressBar (ui) {
-  const isHidden = () => ui.evaluate(() => document.getElementById('tab-editor').hidden)
-  if (!(await isHidden())) return
-
-  try {
-    await ui.click('.tab-item.active', { timeout: 5000 })
-  } catch (e) {
-    // The editor can open between the check above and the click, in which case the
-    // click is swallowed by it - which is success, not failure. Re-throw only if it
-    // is still closed.
-    if (await isHidden()) throw e
-    return
-  }
-
-  await until(async () => !(await isHidden()), { what: 'the address bar to open', timeout: 15000 })
+  await driveWindow(app, { op: 'focus' })
+  await focusContents(app, 'pages/chrome/')
+  await cdp(app, 'pages/chrome/', [
+    { method: 'Input.dispatchMouseEvent', params: { type: 'mouseMoved', x: 120, y: 6 }}
+  ])
+  await until(async () => chromeDom(app, 'document.body.classList.contains("ct-open")'), {
+    what: 'the island to open'
+  })
 }
 
-/* Fills the address bar and presses Enter - the app's own submit path, which is
-   what calls urlParser.parse and hands the result to the view manager.
+/* The pill's editing state: open the island, click the pill, and type.
 
-   `fill` rather than `keyboard.type`: the editor selects its contents when it
-   opens, and Min's focus handling races with a test's first keystrokes, so typed
-   text can land inside the previous URL instead of replacing it (observed: the
-   second navigation in a session kept the first URL). fill replaces the value in
-   one step, and the check below still asserts the text arrived before Enter is
-   pressed - a mismatch here means the app, not the test, is in an unexpected
-   state. */
-async function enterUrl (ui, url) {
-  await openAddressBar(ui)
-  await ui.fill('#tab-editor-input', url)
+   A click, not a shortcut: the pill is an ordinary DOM control in the chrome
+   layer, so the press goes to it as it goes to any other control. `insertText`
+   replaces the selection `beginEdit` made, which is why this does not need the
+   focus handling `fill` had to worry about in the old editor. Returns nothing:
+   the caller presses Enter or Escape. */
+async function addressInput (ui, app, text) {
+  await openAddressBar(ui, app)
 
-  const typed = await ui.inputValue('#tab-editor-input')
-  if (typed !== url) {
-    throw new Error(`the address bar did not receive the URL (it holds ${JSON.stringify(typed)})`)
+  const at = await chromeDom(app, `(() => {
+    const rect = document.getElementById('address-input').getBoundingClientRect()
+    return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }
+  })()`)
+
+  await driveWindow(app, { op: 'focus' })
+  await focusContents(app, 'pages/chrome/')
+  await cdp(app, 'pages/chrome/', [
+    { method: 'Input.dispatchMouseEvent', params: { type: 'mousePressed', x: at.x, y: at.y, button: 'left', clickCount: 1 }},
+    { method: 'Input.dispatchMouseEvent', params: { type: 'mouseReleased', x: at.x, y: at.y, button: 'left', clickCount: 1 }}
+  ])
+
+  await until(async () => chromeDom(app, '!document.getElementById("address-input").readOnly'), {
+    what: 'the pill to begin editing'
+  })
+  await cdp(app, 'pages/chrome/', [{ method: 'Input.insertText', params: { text: text }}])
+
+  const typed = await chromeDom(app, 'document.getElementById("address-input").value')
+  if (typed !== text) {
+    throw new Error(`the address pill did not receive ${JSON.stringify(text)} (it holds ${JSON.stringify(typed)})`)
   }
+}
 
-  await ui.keyboard.press('Enter')
+/* A key, as the app's own key handling sees one. The `char` event is what a
+   renderer's text input looks for, and the code/key pair is what the app's
+   handlers match on - neither is optional on this machine. */
+const pressKey = (app, key, code, keyCode) => cdp(app, 'pages/chrome/', [
+  { method: 'Input.dispatchKeyEvent', params: { type: 'keyDown', key: key, code: code, windowsVirtualKeyCode: keyCode, text: key === 'Enter' ? '\r' : undefined }},
+  ...(key === 'Enter' ? [{ method: 'Input.dispatchKeyEvent', params: { type: 'char', key: key, code: code, windowsVirtualKeyCode: keyCode, text: '\r' }}] : []),
+  { method: 'Input.dispatchKeyEvent', params: { type: 'keyUp', key: key, code: code, windowsVirtualKeyCode: keyCode }}
+])
+
+const pressEnter = app => pressKey(app, 'Enter', 'Enter', 13)
+const pressEscape = app => pressKey(app, 'Escape', 'Escape', 27)
+
+/* Fills the island's address pill and presses Enter - the app's own submit path,
+   which is what parses the value and hands it to the view manager. */
+async function enterUrl (ui, app, url) {
+  await addressInput(ui, app, url)
+  await pressEnter(app)
 }
 
 /* Opens a short mercury:// URL the way a user would - through the address bar - and
@@ -364,7 +395,7 @@ async function enterUrl (ui, url) {
    is returned after the grace period rather than hanging here - the caller's own
    assertion is the right place to notice that. */
 async function openShortUrl (ui, app, shortUrl, expectedUrl) {
-  await enterUrl(ui, shortUrl)
+  await enterUrl(ui, app, shortUrl)
   const tab = await until(
     async () => (await webContentsList(app)).find(wc => wc.url === expectedUrl),
     { what: `${shortUrl} to render as ${expectedUrl} in a tab`, timeout: 30000 }
@@ -504,6 +535,10 @@ module.exports = {
   CHROME_PAGE,
   enterUrl,
   openShortUrl,
+  addressInput,
+  openAddressBar,
+  pressEnter,
+  pressEscape,
   openSettingsTab,
   openNewTabPage,
   ensureSettingsPage,
