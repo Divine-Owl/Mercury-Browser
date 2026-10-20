@@ -18,11 +18,20 @@ alpha half of the claim stays with the source test rather than being faked here.
 
 const { test, expect } = require('@playwright/test')
 
-const { launchApp, inMain, ensureSettingsPage, openSettingsTab, layerFacts, viewFacts, chromeDom, cdp, pixels, driveWindow, focusContents, newTab, until, webContentsList, openAddressBar, enterUrl, addressInput, pressEnter, pressEscape, SHORT_SETTINGS_URL, SHORT_NEWTAB_URL, SETTINGS_PAGE, UI_URL } = require('./harness.js')
+const { launchApp, inMain, ensureSettingsPage, openSettingsTab, layerFacts, viewFacts, chromeDom, cdp, pixels, driveWindow, focusContents, newTab, until, webContentsList, openAddressBar, enterUrl, addressInput, pressEnter, pressEscape, setPageCornerRadius, SHORT_SETTINGS_URL, SHORT_NEWTAB_URL, SETTINGS_PAGE, UI_URL } = require('./harness.js')
 
 const rgbOf = hex => {
   const value = parseInt(hex.slice(1), 16)
   return { r: (value >> 16) & 255, g: (value >> 8) & 255, b: value & 255 }
+}
+
+// The same, for a computed style's "rgb(r, g, b)" - which is how a page reports
+// its own background, and how it has to be read: the settings page follows the
+// machine's theme, so a colour hard-coded here would be a test that passes on
+// one desktop and fails on another.
+const rgbOfCss = value => {
+  const parts = String(value).match(/\d+/g) || []
+  return { r: Number(parts[0]), g: Number(parts[1]), b: Number(parts[2]) }
 }
 
 const rgbString = rgb => `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`
@@ -876,5 +885,99 @@ test.describe('closing from the island', () => {
 
     await clickControl(ctx.app, 'close-button')
     expect(await closed).toBeTruthy()
+  })
+})
+
+/* Task 9: the page paints its own top corners (§4.7), and the radius is a live
+   setting.
+
+   The proof is the spike's: the corner pixel is the frame's colour, and a pixel
+   past the corner's own box is the page's. Both colours are read rather than
+   hard-coded - the frame's from the token the layer was given, the page's from
+   the page itself - because the settings page follows the machine's theme, and a
+   test that named a colour would pass on one desktop and fail on another. */
+test.describe('the page’s corners', () => {
+  let ctx
+
+  /* The page's own background, read from the page: the half of the corner that
+     the page paints is the frame's colour, and the half it does not is the
+     page's own. */
+  const pageBackground = app => inMain(app, async ({ webContents }) => {
+    const wc = webContents.getAllWebContents().find(w => w.getURL().includes('/pages/settings/'))
+    if (!wc) throw new Error('the settings page is not open')
+    return wc.executeJavaScript('getComputedStyle(document.body).backgroundColor')
+  })
+
+  /* Is the page's pixel at that point this colour? */
+  const pixelIs = async (app, point, expected) => {
+    const [px] = await pixels(app, 'pages/settings/', [point])
+    return px.r === expected.r && px.g === expected.g && px.b === expected.b
+  }
+
+  /* The chrome layer's own account of the radius: the frame's hairline is inset
+     by it, so it has to follow the setting or the hairline and the page's arc
+     would not meet (§4.7). */
+  const frameRadius = app => chromeDom(app, 'getComputedStyle(document.documentElement).getPropertyValue("--r-page").trim()')
+
+  test.beforeAll(async () => {
+    ctx = await launchApp()
+    // the settings page: it is the surface the setting is changed on, and a tab
+    // view is what carries the preload that paints the corners
+    await openSettingsTab(ctx.ui, ctx.app)
+  })
+
+  test.afterAll(async () => {
+    await ctx.close()
+  })
+
+  test('paints the page’s top corners at the default radius', async () => {
+    const frame = (await framePaint(ctx.app)).rgb
+    const page = rgbOfCss(await pageBackground(ctx.app))
+
+    // the corner is the frame's colour: the page's own arc is cut out of it
+    expect(await pixelIs(ctx.app, { x: 0, y: 0 }, frame)).toBe(true)
+    // and a pixel past the corner's own box is the page's
+    expect(await pixelIs(ctx.app, { x: 22, y: 22 }, page)).toBe(true)
+
+    // the frame's hairline is inset by the same radius, so the two meet
+    expect(await frameRadius(ctx.app)).toBe('20px')
+  })
+
+  test('takes the setting live, without a reload', async () => {
+    const frame = (await framePaint(ctx.app)).rgb
+    const page = rgbOfCss(await pageBackground(ctx.app))
+
+    /* A sentinel in the page's own context: a reload would take it away, and
+       nothing here reloads anything - the setting travels as a message to the
+       view that is already open. */
+    await inMain(ctx.app, ({ webContents }) => {
+      const wc = webContents.getAllWebContents().find(w => w.getURL().includes('/pages/settings/'))
+      return wc.executeJavaScript('window.__cornerSentinel = "kept"')
+    })
+
+    // radius 0: no corner at all, and the page's own pixels are there
+    await setPageCornerRadius(ctx.app, 0)
+
+    await until(async () => await pixelIs(ctx.app, { x: 0, y: 0 }, page), {
+      what: 'the corner to lose the frame’s colour'
+    })
+    expect(await frameRadius(ctx.app)).toBe('0px')
+
+    // radius 100: the corner is the frame's colour again, and the page's own
+    // starts 100 px in
+    await setPageCornerRadius(ctx.app, 100)
+
+    await until(async () => await pixelIs(ctx.app, { x: 0, y: 0 }, frame), {
+      what: 'the corner to take the frame’s colour back'
+    })
+    expect(await pixelIs(ctx.app, { x: 102, y: 102 }, page)).toBe(true)
+    expect(await frameRadius(ctx.app)).toBe('100px')
+
+    // and the page was never reloaded to get there
+    const sentinel = await inMain(ctx.app, ({ webContents }) => {
+      const wc = webContents.getAllWebContents().find(w => w.getURL().includes('/pages/settings/'))
+      return wc.executeJavaScript('window.__cornerSentinel')
+    })
+    expect(sentinel).toBe('kept')
   })
 })

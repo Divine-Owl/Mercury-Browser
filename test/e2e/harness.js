@@ -515,6 +515,26 @@ const clickShowDividerCheckbox = app => inMain(app, async ({ webContents }) => {
   `)
 })
 
+/* Sets the page's corner radius through the settings page, the way a user would:
+   the input is given a value and told about it, and the page's own change
+   listener does the rest. Nothing here reaches into the app's settings - the
+   value only reaches the running browser if the whole chain survives: the
+   page's listener, settingsContent's postMessage, settingsPreload's origin
+   guard, the view manager's ipc relay and main's settings module. */
+const setPageCornerRadius = (app, value) => inMain(app, async ({ webContents }, value) => {
+  const wc = webContents.getAllWebContents().find(w => w.getURL().includes('/pages/settings/'))
+  if (!wc) throw new Error('the settings page is not open')
+  return wc.executeJavaScript(`
+    (() => {
+      const input = document.getElementById('input-page-corner-radius')
+      if (!input) return 'no input'
+      input.value = ${JSON.stringify(String(value))}
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      return 'now ' + input.value
+    })()
+  `)
+}, value)
+
 const readSettingsFile = userData => {
   const file = path.join(userData, 'settings.json')
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {}
@@ -572,6 +592,7 @@ module.exports = {
   settingsPageFacts,
   readerPageFacts,
   clickShowDividerCheckbox,
+  setPageCornerRadius,
   readSettingsFile,
   versionBanner,
   electronPath
