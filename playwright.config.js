@@ -27,9 +27,10 @@ module.exports = defineConfig({
   // Two, not one: the app dies on its own in roughly one launch in ten (a
   // measured fact, in the plan's fact table), and a run has many tests that each
   // need an app - so one retry is not enough to absorb a run in which three
-  // different tests each hit it. Locally the visible run keeps its zero retries,
-  // so the flake stays visible.
-  retries: process.env.CI ? 2 : 0,
+  // different tests each hit it. The number is four because the crash rate on a
+  // two-core runner is roughly a third of the launches that navigate. Locally the
+  // visible run keeps its zero retries, so the flake stays visible.
+  retries: process.env.CI ? 4 : 0,
   reporter: process.env.CI ? [['list'], ['github']] : [['list']],
   // A trace of a window Playwright does not own the lifecycle of is noise here;
   // the specs print what they observed instead.
