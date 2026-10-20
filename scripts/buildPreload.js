@@ -9,6 +9,8 @@ const modules = [
   'js/preload/readerDetector.js',
   'js/preload/siteUnbreak.js',
   'js/preload/pointerReports.js',
+  'js/util/pageFilletStyle.js',
+  'js/preload/pageCorners.js',
   'js/util/settings/settingsPreload.js',
   'js/preload/passwordFill.js',
 ]

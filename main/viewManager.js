@@ -319,6 +319,21 @@ function getView (id) {
   return viewMap[id]
 }
 
+/* Every live view, so main can tell all of them the same thing at once: the
+   page's corner style is the same in every tab (§4.7), and there is no
+   per-window list of views to walk - the views are the tabs of every task. */
+function forEachView (cb) {
+  if (!viewMap) {
+    return
+  }
+  for (var id in viewMap) {
+    var view = viewMap[id]
+    if (view && !view.webContents.isDestroyed()) {
+      cb(view)
+    }
+  }
+}
+
 function getTabIDFromWebContents (contents) {
   for (var id in viewMap) {
     if (viewMap[id].webContents === contents) {
@@ -472,3 +487,4 @@ ipc.on('saveViewCapture', function (e, data) {
 })
 
 global.getView = getView
+global.forEachView = forEachView

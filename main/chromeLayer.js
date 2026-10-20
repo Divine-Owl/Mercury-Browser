@@ -13,7 +13,7 @@
    native view entirely. Keeping the height in one function here is what makes
    "the box is exactly as tall as the chrome it shows" true by construction. */
 
-/* global ipc, windows, settings, WebContentsView, chromeTokens, chromeSettings, chromeReveal, getView, getWindowFromViewContents, getWindowWebContents */
+/* global ipc, windows, settings, WebContentsView, chromeTokens, chromeSettings, chromeReveal, getView, getWindowFromViewContents, getWindowWebContents, forEachView */
 
 const CHROME_PAGE_URL = 'mercury://app/pages/chrome/index.html'
 
@@ -410,8 +410,43 @@ ipc.on('chrome-ready', function (e) {
   chromeLayer.pushTabs(win)
 })
 
-settings.listen('darkThemeIsActive', function () {
+settings.listen('pageCornerRadius', pushPageStyle)
+settings.listen('darkThemeIsActive', pushPageStyle)
+
+/* The page's own top corners (§4.7).
+
+   The page paints them - a preload module in the tab view, which is the only
+   party that can paint in a page's own document - so main's part is to say what
+   they look like: the radius is a setting, and the two colours are the theme's
+   tokens. The document asks for the style when it loads, and main pushes it
+   again whenever the setting or the theme changes, so the change is live and
+   needs no reload. */
+function pageStyle () {
+  const tokens = settings.get('darkThemeIsActive') ? chromeTokens.dark : chromeTokens.light
+  return {
+    radius: chromeSettings.pageCornerRadius.clamp(settings.get('pageCornerRadius')),
+    outside: tokens['--frame-bg'],
+    hairline: tokens['--hairline']
+  }
+}
+
+/* The frame's hairline is inset by the page's radius, so the hairline and the
+   page's arc meet without a corner (§4.7). The radius therefore has to reach
+   the layer's tokens as well as the views - otherwise the two would disagree
+   the moment the setting moved, which is the one thing the continuity rule is
+   about. */
+function pushPageStyle () {
   windows.getAll().forEach(function (win) {
     chromeLayer.pushTokens(win)
   })
+  forEachView(function (view) {
+    view.webContents.send('pageStyle', pageStyle())
+  })
+}
+
+/* A document asks for the style when it loads, which is also how a view that
+   was created after main's last push gets it: the request is the answer's
+   counterpart, and neither side has to guess when the other was ready. */
+ipc.on('pageStyleRequest', function (e) {
+  e.sender.send('pageStyle', pageStyle())
 })

@@ -284,6 +284,22 @@ showDividerCheckbox.addEventListener('change', function (e) {
   settings.set('showDividerBetweenTabs', this.checked)
 })
 
+/* page corner radius setting */
+
+/* The range and the clamp live in the chrome's own settings module (§4.10), so
+   the page cannot disagree with main about what the setting means: an <input
+   type="number"> hands its value back as text, and the clamp is what turns that
+   into a number in range. */
+var pageCornerRadiusInput = document.getElementById('input-page-corner-radius')
+
+settings.get('pageCornerRadius', function (value) {
+  pageCornerRadiusInput.value = chromeSettings.pageCornerRadius.clamp(value)
+})
+
+pageCornerRadiusInput.addEventListener('change', function (e) {
+  settings.set('pageCornerRadius', chromeSettings.pageCornerRadius.clamp(this.value))
+})
+
 /* language setting*/
 
 var languagePicker = document.getElementById('setting-language-picker')

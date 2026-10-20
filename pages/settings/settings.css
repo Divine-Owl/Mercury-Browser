@@ -58,6 +58,10 @@ html {
 .setting-section input[type="checkbox"] + label {
   vertical-align: middle;
 }
+.setting-section input[type="number"] {
+  width: 5em;
+  vertical-align: middle;
+}
 .setting-section input + label {
   padding-left: 0.33em;
 }

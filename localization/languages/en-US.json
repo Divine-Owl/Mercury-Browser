@@ -162,6 +162,7 @@
     "settingsAdditionalFeaturesHeading": "Additional Features",
     "settingsUserscriptsToggle": "Enable user scripts",
     "settingsShowDividerToggle": "Show divider between tabs",
+    "settingsRoundedPageCorners": "Rounded page corners (px, 0 to disable)",
     "settingsLanguageSelection": "Language: ",
     "settingsSeparateTitlebarToggle": "Use separate title bar",
     "settingsAutoplayToggle": "Enable Autoplay",
