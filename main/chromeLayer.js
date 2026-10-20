@@ -203,6 +203,40 @@ const chromeLayer = {
   }
 }
 
+/* The tab's history commands, done where the view is. The webview-tag methods
+   they used to call - goBackIgnoringRedirects, canGoToOffset, goToOffset - are
+   gone in Electron 43, so the old path called nothing and the back button did
+   nothing with it; Electron's navigationHistory replaced them. */
+ipc.handle('chrome-history', function (e, data) {
+  const win = windows.windowFromContents(e.sender)?.win
+  if (!win) {
+    return
+  }
+  const view = getView(windows.getState(win).selectedView)
+  if (!view || view.webContents.isDestroyed()) {
+    return
+  }
+  const history = view.webContents.navigationHistory
+  switch (data && data.action) {
+    case 'goBack':
+      if (history.canGoBack()) {
+        history.goBack()
+      }
+      break
+    case 'goForward':
+      if (history.canGoForward()) {
+        history.goForward()
+      }
+      break
+    case 'reload':
+      view.webContents.reload()
+      break
+    case 'stop':
+      view.webContents.stop()
+      break
+  }
+})
+
 /* The window's own state, the only party that can read it: the island's maximise
    button shows which of the two it is offering. */
 function windowState (win) {
@@ -224,8 +258,8 @@ function pushNavState (win) {
     return
   }
   chromeLayer.send(win, 'chrome-nav-state', {
-    canGoBack: view.webContents.canGoBack(),
-    canGoForward: view.webContents.canGoForward(),
+    canGoBack: view.webContents.navigationHistory.canGoBack(),
+    canGoForward: view.webContents.navigationHistory.canGoForward(),
     loading: view.webContents.isLoading()
   })
 }
@@ -244,8 +278,10 @@ ipc.handle('chrome-nav-state', function (e) {
     return null
   }
   const state = {
-    canGoBack: view.webContents.canGoBack(),
-    canGoForward: view.webContents.canGoForward(),
+    /* navigationHistory, not canGoBack(): Electron 43 deprecated the old call
+       (it warns in the log) and the history object is what replaced it. */
+    canGoBack: view.webContents.navigationHistory.canGoBack(),
+    canGoForward: view.webContents.navigationHistory.canGoForward(),
     loading: view.webContents.isLoading()
   }
   /* Pushed to the chrome layer from here rather than from the page that asked:

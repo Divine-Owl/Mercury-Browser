@@ -254,7 +254,10 @@ body.ct-open #island {
 }
 
 #controls button:disabled {
-  opacity: 0.4;
+  /* Dimmed, but present: at a lower opacity the disabled icons disappear into an
+     AMOLED surface, and a control you cannot see is not a control you know is
+     there. */
+  opacity: 0.55;
   cursor: default;
 }
 

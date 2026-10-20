@@ -160,22 +160,14 @@ var chromeBridge = {
 
       case 'goBack':
       case 'goForward':
-        /* The same calls js/navbar/navigationButtons.js makes, so history behaves
-           exactly as it always has. */
-        if (data.action === 'goBack') {
-          webviews.goBackIgnoringRedirects(tabs.getSelected())
-        } else {
-          webviews.callAsync(tabs.getSelected(), 'goForward')
-        }
-        chromeBridge.publishNavState()
-        break
-
       case 'reload':
-        webviews.callAsync(tabs.getSelected(), 'reload')
-        break
-
       case 'stop':
-        webviews.callAsync(tabs.getSelected(), 'stop')
+        /* The view is main's, and the methods the old path used are gone in
+           Electron 43 (goBackIgnoringRedirects, canGoToOffset, goToOffset were
+           webview-tag APIs) - so main does the navigation, through the history
+           object that replaced them. */
+        ipc.invoke('chrome-history', { action: data.action })
+        chromeBridge.publishNavState()
         break
     }
   }
