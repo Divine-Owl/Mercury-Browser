@@ -261,6 +261,31 @@ body.ct-open #island {
   cursor: default;
 }
 
+/* The window buttons draw the conventional glyphs - a bar, a square, two
+   overlapping squares, a cross - the same ones the old caption buttons used, so
+   they read the way every other window's do. */
+#controls svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.1px;
+}
+
+/* The maximise button is two glyphs: the square it offers and the pair that
+   takes a maximised window back down. */
+#controls .restore-glyph {
+  display: none;
+}
+
+#maximize-button.is-restore .maximize-glyph {
+  display: none;
+}
+
+#maximize-button.is-restore .restore-glyph {
+  display: block;
+}
+
 /* The window group is set slightly apart from the navigation buttons, the way the
    old caption buttons were: they are a different kind of command. */
 #controls .window-controls {

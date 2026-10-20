@@ -100,7 +100,10 @@ var controls = {
     var restore = !!state.maximized || !!state.fullscreen
     controls.maximize.dataset.state = restore ? 'restore' : 'maximize'
     controls.maximize.dataset.action = restore ? 'unmaximize' : 'maximize'
-    controls.icon(controls.maximize, restore ? 'shrink-screen' : 'maximize')
+    /* The glyph follows the state: a square to maximise, two overlapping squares
+       to restore - the conventional pair, and the one the old caption buttons
+       drew. */
+    controls.maximize.classList.toggle('is-restore', restore)
   },
 
   send: function (action) {

@@ -43,14 +43,19 @@
           <i class="i carbon:overflow-menu-vertical"></i>
         </button>
         <span class="window-controls">
+          <!-- The conventional glyphs, the ones the old caption buttons used: a bar,
+               a square, two overlapping squares, a cross. Drawn rather than taken
+               from the icon font, because the icon font's minimize is a diagonal
+               collapse arrow and no other window on the desktop has that. -->
           <button id="minimize-button" type="button" data-label="appMenuMinimize" data-state="minimize" data-action="minimize">
-            <i class="i carbon:subtract"></i>
+            <svg viewBox="0 0 12 12" aria-hidden="true"><line x1="1" y1="5.5" x2="11" y2="5.5" /></svg>
           </button>
           <button id="maximize-button" type="button" data-label="appMenuZoomIn" data-state="maximize" data-action="maximize">
-            <i class="i carbon:maximize"></i>
+            <svg class="maximize-glyph" viewBox="0 0 12 12" aria-hidden="true"><rect x="1.5" y="1.5" width="9" height="9" /></svg>
+            <svg class="restore-glyph" viewBox="0 0 12 12" aria-hidden="true"><rect x="1.5" y="3.5" width="7" height="7" /><polyline points="3.5,3.5 3.5,1.5 10.5,1.5 10.5,8.5 8.5,8.5" /></svg>
           </button>
           <button id="close-button" type="button" data-label="appMenuClose" data-state="close" data-action="close">
-            <i class="i carbon:x"></i>
+            <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1,1 l 10,10 M1,11 l 10,-10" /></svg>
           </button>
         </span>
       </div>
