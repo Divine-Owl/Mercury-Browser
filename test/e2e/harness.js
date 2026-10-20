@@ -27,7 +27,7 @@ the page's preload, in that order.
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { execFile } = require('child_process')
+const { execFile, execFileSync } = require('child_process')
 const { _electron } = require('@playwright/test')
 
 const ROOT = path.join(__dirname, '..', '..')
@@ -94,6 +94,20 @@ function makeHome () {
   fs.mkdirSync(minDir, { recursive: true })
   fs.writeFileSync(path.join(minDir, 'settings.json'), MIN_SENTINEL)
   return { home, config, minDir }
+}
+
+/* A crashed app leaves its renderers behind: the main process is gone, so nothing
+   reaps them, and each one holds a hundred megabytes or more. That is how a single
+   crash turns into a run full of them - the runner runs out of memory and every
+   launch after it dies too, which is exactly the clustering the CI showed. The
+   app's home is unique per launch, so anything still running from it is a
+   leftover. */
+function reapLeftovers (home) {
+  try {
+    execFileSync('pkill', ['-f', home], { stdio: 'ignore' })
+  } catch (e) {
+    // pkill exits 1 when it matched nothing, which is the good case
+  }
 }
 
 const stat = dir => {
@@ -163,6 +177,7 @@ async function launchApp (options = {}) {
     userData,
     async close () {
       await app.close().catch(() => {})
+      reapLeftovers(home)
     }
   }
 }
