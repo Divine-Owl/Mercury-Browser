@@ -221,3 +221,48 @@ body.ct-open #island {
 #address-input:focus {
   cursor: text;
 }
+
+/* The controls (§4.4): icon buttons, the same shape as the frame's pills - the press
+   target is the whole button and the icon is what is drawn. They sit at the row's
+   right end, after the address pill, and take no more than they need: the pill grows
+   to fill what is left. */
+#controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  -webkit-app-region: no-drag;
+}
+
+#controls button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 15px;
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+#controls button:hover:not(:disabled) {
+  /* the island's own hover surface: the address pill's, one step off the island */
+  background: var(--address-bg);
+}
+
+#controls button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The window group is set slightly apart from the navigation buttons, the way the
+   old caption buttons were: they are a different kind of command. */
+#controls .window-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+}

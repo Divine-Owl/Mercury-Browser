@@ -14,12 +14,13 @@
 
 const ipc = require('electron').ipcRenderer
 var urlParser = require('util/urlParser.js')
+var webviews = require('webviews.js')
 
-/* No require of browserUI, searchbar or webviews at the top of this file. This
-   module loads first (js/default.js), and those three load the modules that talk
-   back to it - a top-level require here would hand them this module half-loaded,
-   and `browserUI.switchToTab` would stay undefined for the life of the page. They
-   are required inside applyAction instead, where a require is a cache read. */
+/* No require of browserUI or searchbar at the top of this file. This module loads
+   first (js/default.js), and those two load the modules that talk back to it - a
+   top-level require here would hand them this module half-loaded, and
+   `browserUI.switchToTab` would stay undefined for the life of the page. They are
+   required inside applyAction instead, where a require is a cache read. */
 
 var chromeBridge = {
   pending: false,
@@ -35,7 +36,17 @@ var chromeBridge = {
     ].forEach(function (name) {
       tasks.on(name, function () {
         chromeBridge.publish()
+        chromeBridge.publishNavState()
       })
+    })
+
+    /* Loading is not a tab event, so it has its own two: the reload button becomes
+       a stop button while the page is loading. */
+    webviews.bindEvent('did-start-loading', function () {
+      chromeBridge.publishNavState()
+    })
+    webviews.bindEvent('did-stop-loading', function () {
+      chromeBridge.publishNavState()
     })
 
     ipc.on('chrome-action', function (e, data) {
@@ -43,6 +54,7 @@ var chromeBridge = {
     })
 
     chromeBridge.publish()
+    chromeBridge.publishNavState()
   },
 
   publish: function () {
@@ -101,6 +113,23 @@ var chromeBridge = {
     ipc.send('chrome-focus-address', { value: value || null })
   },
 
+  /* The two history buttons' state, and whether the reload button is a stop button
+     instead. Main reads it - the view is a native view in the main process, and
+     its canGoBack() is synchronous there - and pushes the answer to the chrome
+     layer, which is main's to talk to. */
+  publishNavState: function () {
+    /* window.tabs only exists once a task has been selected - session restore's
+       job, and it is asynchronous - so the first call can beat it. The same guard
+       publish() has, and for the same reason: throwing here would take the rest of
+       the page's bootstrap with it. */
+    if (!tabs) {
+      return
+    }
+    ipc.invoke('chrome-nav-state').catch(function () {
+      // the window went away between the ask and the answer; nothing to publish to
+    })
+  },
+
   applyAction: function (data) {
     if (!data) {
       return
@@ -116,7 +145,7 @@ var chromeBridge = {
            from the last summary it was sent, so a close and a click can cross.
            An unknown id is therefore not an error, it is a stale pill, and
            tabs.get() is what asks. */
-        if (tabs.get(data.tabId)) {
+        if (tabs && tabs.get(data.tabId)) {
           browserUI.switchToTab(data.tabId)
         }
         break
@@ -127,6 +156,26 @@ var chromeBridge = {
            view manager. */
         searchbar.events.emit('url-selected', { url: data.value, background: false })
         webviews.focus()
+        break
+
+      case 'goBack':
+      case 'goForward':
+        /* The same calls js/navbar/navigationButtons.js makes, so history behaves
+           exactly as it always has. */
+        if (data.action === 'goBack') {
+          webviews.goBackIgnoringRedirects(tabs.getSelected())
+        } else {
+          webviews.callAsync(tabs.getSelected(), 'goForward')
+        }
+        chromeBridge.publishNavState()
+        break
+
+      case 'reload':
+        webviews.callAsync(tabs.getSelected(), 'reload')
+        break
+
+      case 'stop':
+        webviews.callAsync(tabs.getSelected(), 'stop')
         break
     }
   }

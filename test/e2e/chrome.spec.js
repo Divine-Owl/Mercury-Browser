@@ -18,7 +18,7 @@ alpha half of the claim stays with the source test rather than being faked here.
 
 const { test, expect } = require('@playwright/test')
 
-const { launchApp, inMain, ensureSettingsPage, openSettingsTab, layerFacts, viewFacts, chromeDom, cdp, pixels, driveWindow, focusContents, newTab, until, webContentsList, openAddressBar, enterUrl, addressInput, pressEnter, pressEscape, SHORT_SETTINGS_URL, SETTINGS_PAGE } = require('./harness.js')
+const { launchApp, inMain, ensureSettingsPage, openSettingsTab, layerFacts, viewFacts, chromeDom, cdp, pixels, driveWindow, focusContents, newTab, until, webContentsList, openAddressBar, enterUrl, addressInput, pressEnter, pressEscape, SHORT_SETTINGS_URL, SHORT_NEWTAB_URL, SETTINGS_PAGE, UI_URL } = require('./harness.js')
 
 const rgbOf = hex => {
   const value = parseInt(hex.slice(1), 16)
@@ -639,5 +639,242 @@ test.describe('the viewport and the page below the frame', () => {
 
     expect(editor.hidden).toBe(true)
     expect(editor.editMode).toBe(false)
+  })
+})
+
+/* Task 7: the island's third element - back, forward, reload, the menu, and the
+   window buttons. Each is an icon button whose state it carries on itself, because
+   the chrome layer is not a Playwright page: `data-action` is what a press asks for
+   and `data-label` is the state it is in (maximize vs restore). */
+test.describe('the island’s controls', () => {
+  let ctx
+
+  /* A press on a control in the chrome layer: the layer is a view, not a page, so
+     the press goes through CDP at the control's centre. */
+  const clickControl = async (app, id) => {
+    const at = await chromeDom(app, `(() => {
+      const rect = document.getElementById(${JSON.stringify(id)}).getBoundingClientRect()
+      return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }
+    })()`)
+
+    await driveWindow(app, { op: 'focus' })
+    await focusContents(app, 'pages/chrome/')
+    await cdp(app, 'pages/chrome/', [
+      { method: 'Input.dispatchMouseEvent', params: { type: 'mousePressed', x: at.x, y: at.y, button: 'left', clickCount: 1 }},
+      { method: 'Input.dispatchMouseEvent', params: { type: 'mouseReleased', x: at.x, y: at.y, button: 'left', clickCount: 1 }}
+    ])
+  }
+
+  /* The browser window, which is not BaseWindow.getAllWindows()[0] - the app keeps
+     a hidden history-service window in that list on every run. The URL is spelled
+     out because this function runs in the main process, where the harness's own
+     scope is not. */
+  const windowState = (app, state) => inMain(app, ({ BaseWindow }, state) => {
+    const win = BaseWindow.getAllWindows().find(w =>
+      (w.contentView ? w.contentView.children : []).some(view =>
+        view.webContents && view.webContents.getURL() === 'mercury://app/index.html'))
+    if (!win) return null
+    if (state === 'maximized') return win.isMaximized()
+    if (state === 'minimized') return win.isMinimized()
+    return null
+  }, state)
+
+  test.beforeAll(async () => {
+    ctx = await launchApp()
+    // the settings page, so a press has somewhere to land and a history to grow
+    await openSettingsTab(ctx.ui, ctx.app)
+  })
+
+  test.afterAll(async () => {
+    await ctx.close()
+  })
+
+  test('starts with nothing to go back or forward to', async () => {
+    await openAddressBar(ctx.ui, ctx.app)
+
+    const nav = await chromeDom(ctx.app, `({
+      back: document.getElementById('back-button').disabled,
+      forward: document.getElementById('forward-button').disabled
+    })`)
+
+    expect(nav.back).toBe(true)
+    expect(nav.forward).toBe(true)
+  })
+
+  test('enables back once there is somewhere to go back to, and goes back', async () => {
+    await enterUrl(ctx.ui, ctx.app, SHORT_SETTINGS_URL)
+    await enterUrl(ctx.ui, ctx.app, SHORT_NEWTAB_URL)
+
+    await openAddressBar(ctx.ui, ctx.app)
+
+    // The history answers after the navigation commits, so the button is waited for
+    // rather than read once.
+    await until(async () => !(await chromeDom(ctx.app, 'document.getElementById("back-button").disabled')), {
+      what: 'the back button to be enabled'
+    })
+
+    const nav = await chromeDom(ctx.app, `({
+      back: document.getElementById('back-button').disabled,
+      forward: document.getElementById('forward-button').disabled
+    })`)
+
+    expect(nav.back).toBe(false) // the settings page is behind this one
+    expect(nav.forward).toBe(true) // nothing ahead of it
+
+    await clickControl(ctx.app, 'back-button')
+
+    await until(
+      async () => (await webContentsList(ctx.app)).some(wc => wc.url === SETTINGS_PAGE),
+      { what: 'the tab to go back to the settings page' }
+    )
+  })
+
+  test('shows reload, and the maximise button follows the window', async () => {
+    await openAddressBar(ctx.ui, ctx.app)
+
+    expect(await chromeDom(ctx.app, 'document.getElementById("reload-button").dataset.action')).toBe('reload')
+
+    /* Which of the two the button offers depends on the window's own state, and a
+       display with no window manager starts the window maximised (it is bigger
+       than the screen) - so the test asks the button to change its state rather
+       than assuming where it started. */
+    const label = () => chromeDom(ctx.app, 'document.getElementById("maximize-button").dataset.state')
+    const before = await label()
+
+    await clickControl(ctx.app, 'maximize-button')
+    await until(async () => await label() !== before, {
+      what: 'the maximise button to change its state'
+    })
+    expect(await label()).toBe(before === 'maximize' ? 'restore' : 'maximize')
+
+    await clickControl(ctx.app, 'maximize-button')
+    await until(async () => await label() === before, {
+      what: 'the maximise button to come back to where it was'
+    })
+  })
+
+  test('opens the secondary menu from the island', async () => {
+    /* Observed in main, before the press: the menu is main's business, and the
+       chrome page asking for it is the contract being tested. */
+    const asked = inMain(ctx.app, ({ ipcMain }) => new Promise(resolve => {
+      ipcMain.once('showSecondaryMenu', (e, data) => resolve(data))
+      setTimeout(() => resolve(null), 10000)
+    }))
+
+    await openAddressBar(ctx.ui, ctx.app)
+    await clickControl(ctx.app, 'menu-button')
+
+    expect(await asked).not.toBeNull()
+
+    /* A popped-up native menu eats the next CDP input, so it is dismissed the way a
+       user dismisses it - a press on the page. */
+    await cdp(ctx.app, 'pages/settings/', [
+      { method: 'Input.dispatchMouseEvent', params: { type: 'mousePressed', x: 400, y: 300, button: 'left', clickCount: 1 }},
+      { method: 'Input.dispatchMouseEvent', params: { type: 'mouseReleased', x: 400, y: 300, button: 'left', clickCount: 1 }}
+    ])
+  })
+})
+
+/* The two buttons that end the window get an app each: a minimised window cannot
+   take the focus CDP input needs, and a closed one has no chrome layer left. */
+test.describe('the island’s window buttons', () => {
+  let ctx
+
+  const clickControl = async (app, id) => {
+    const at = await chromeDom(app, `(() => {
+      const rect = document.getElementById(${JSON.stringify(id)}).getBoundingClientRect()
+      return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }
+    })()`)
+
+    await driveWindow(app, { op: 'focus' })
+    await focusContents(app, 'pages/chrome/')
+    await cdp(app, 'pages/chrome/', [
+      { method: 'Input.dispatchMouseEvent', params: { type: 'mousePressed', x: at.x, y: at.y, button: 'left', clickCount: 1 }},
+      { method: 'Input.dispatchMouseEvent', params: { type: 'mouseReleased', x: at.x, y: at.y, button: 'left', clickCount: 1 }}
+    ])
+  }
+
+  const windowState = (app, state) => inMain(app, ({ BaseWindow }, state) => {
+    const win = BaseWindow.getAllWindows().find(w =>
+      (w.contentView ? w.contentView.children : []).some(view =>
+        view.webContents && view.webContents.getURL() === 'mercury://app/index.html'))
+    if (!win) return null
+    if (state === 'maximized') return win.isMaximized()
+    if (state === 'minimized') return win.isMinimized()
+    return null
+  }, state)
+
+  test.beforeAll(async () => {
+    ctx = await launchApp()
+    await openSettingsTab(ctx.ui, ctx.app)
+  })
+
+  test.afterAll(async () => {
+    await ctx.close()
+  })
+
+  test('minimises the window', async () => {
+    await openAddressBar(ctx.ui, ctx.app)
+
+    /* What the button is for is the request: whether the window manager takes it
+       is the window's business, and a display with no window manager does not
+       take it - there, the window's own state does not change and cannot be
+       observed. The request is observed on the page main answers it on. */
+    await chromeDom(ctx.app, 'window.__min = false; window.ipc.on("minimize", () => { window.__min = true }); undefined')
+
+    await clickControl(ctx.app, 'minimize-button')
+
+    await until(async () => await chromeDom(ctx.app, 'window.__min === true'), {
+      what: 'the window to be asked to minimise'
+    })
+  })
+})
+
+/* Closing is its own app for the same reason: after it there is nothing left to
+   drive. */
+test.describe('closing from the island', () => {
+  let ctx
+
+  const clickControl = async (app, id) => {
+    const at = await chromeDom(app, `(() => {
+      const rect = document.getElementById(${JSON.stringify(id)}).getBoundingClientRect()
+      return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }
+    })()`)
+
+    await driveWindow(app, { op: 'focus' })
+    await focusContents(app, 'pages/chrome/')
+    await cdp(app, 'pages/chrome/', [
+      { method: 'Input.dispatchMouseEvent', params: { type: 'mousePressed', x: at.x, y: at.y, button: 'left', clickCount: 1 }},
+      { method: 'Input.dispatchMouseEvent', params: { type: 'mouseReleased', x: at.x, y: at.y, button: 'left', clickCount: 1 }}
+    ])
+  }
+
+  test.beforeAll(async () => {
+    ctx = await launchApp()
+    await openSettingsTab(ctx.ui, ctx.app)
+  })
+
+  test.afterAll(async () => {
+    await ctx.close()
+  })
+
+  test('closes the browser window', async () => {
+    await openAddressBar(ctx.ui, ctx.app)
+
+    /* The browser window is gone. How that shows depends on what else is open: the
+       app may go with it, or the hidden history-service window may keep the process
+       alive with the browser window destroyed inside it. Both are the window being
+       closed; neither is "no windows at all", which the app's own windows make
+       untrue on every run. */
+    const closed = Promise.race([
+      ctx.app.waitForEvent('close').then(() => 'app closed'),
+      until(async () => {
+        const facts = await viewFacts(ctx.app).catch(() => ({ found: false }))
+        return facts.found ? null : 'window gone'
+      }, { what: 'the browser window to close' }).then(() => 'window gone')
+    ])
+
+    await clickControl(ctx.app, 'close-button')
+    expect(await closed).toBeTruthy()
   })
 })

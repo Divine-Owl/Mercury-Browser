@@ -28,6 +28,7 @@ var frame = require('chrome/frame.js')
 var pointer = require('chrome/pointer.js')
 var strip = require('chrome/strip.js')
 var address = require('chrome/address.js')
+var controls = require('chrome/controls.js')
 
 frame.setTokens(chromeTokens.light)
 
@@ -39,6 +40,9 @@ strip.initialize()
 
 // the island's address pill: the only place a URL is typed (§4.4)
 address.initialize()
+
+// the island's controls: history, the menu, the window buttons (§4.4)
+controls.initialize()
 
 /* Main's pushes across M1. The two this milestone consumes are wired; the rest
    are registered now because the handshake is this file's last line and a
@@ -58,8 +62,13 @@ ipc.on('chrome-tabs', function (e, summary) {
   address.update(summary)
 })
 
-ipc.on('chrome-nav-state', function () { /* the island's navigation controls, Task 7 */ })
-ipc.on('chrome-window-state', function () { /* the island's window controls, Task 7 */ })
+ipc.on('chrome-nav-state', function (e, state) {
+  controls.updateNav(state)
+})
+
+ipc.on('chrome-window-state', function (e, state) {
+  controls.updateWindow(state)
+})
 ipc.on('chrome-focus-address', function (e, data) {
   address.focus(data && data.value)
 })

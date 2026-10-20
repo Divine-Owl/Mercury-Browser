@@ -65,6 +65,12 @@ const CHROME_PAGE = 'mercury://app/pages/chrome/index.html'
    --disable-gpu and --disable-dev-shm-usage: no GPU on a runner, and containers
    have a small /dev/shm.
 */
+/* The suite can run without a display: `npm run test:e2e:headless` wraps the specs
+   in xvfb-run, which gives Electron a virtual X server and no windows on the real
+   one. The app is launched normally - the measured facts the specs lean on (no
+   window manager behind the display, injected input needing a focused window) are
+   the same there, which is why this is xvfb and not Electron's own --headless:
+   that one boots the app but crashes the specs that drive the chrome layer. */
 const CHROMIUM_FLAGS = ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage']
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))

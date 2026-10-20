@@ -10,6 +10,8 @@
     <!-- no title, no text of any kind: the frame carries pills and nothing else (§4.2) -->
 
     <link rel="stylesheet" href="/css/chrome.css" />
+    <!-- the controls' icons: the same set the UI page uses -->
+    <link rel="stylesheet" href="/ext/icons/iconfont.css" />
   </head>
 
   <body class="chrome ct-closed">
@@ -21,6 +23,36 @@
       <div id="address">
         <img id="address-favicon" alt="" />
         <input id="address-input" readonly autocomplete="off" spellcheck="false" />
+      </div>
+
+      <!-- the row's third element (§4.4): history, the menu, then the window buttons.
+           data-label is the locale's hook - it sets the tooltip and the accessible
+           name from that key, and an unknown key throws - so these are real keys.
+           data-state is this page's own: which of the two the button is. -->
+      <div id="controls">
+        <button id="back-button" type="button" data-label="goBack" data-state="back" data-action="goBack" disabled>
+          <i class="i carbon:chevron-left"></i>
+        </button>
+        <button id="forward-button" type="button" data-label="goForward" data-state="forward" data-action="goForward" disabled>
+          <i class="i carbon:chevron-right"></i>
+        </button>
+        <button id="reload-button" type="button" data-label="tabMenuReload" data-state="reload" data-action="reload">
+          <i class="i carbon:restart"></i>
+        </button>
+        <button id="menu-button" type="button" data-label="openMenu" data-state="menu" data-action="openMenu">
+          <i class="i carbon:overflow-menu-vertical"></i>
+        </button>
+        <span class="window-controls">
+          <button id="minimize-button" type="button" data-label="appMenuMinimize" data-state="minimize" data-action="minimize">
+            <i class="i carbon:minimize"></i>
+          </button>
+          <button id="maximize-button" type="button" data-label="appMenuZoomIn" data-state="maximize" data-action="maximize">
+            <i class="i carbon:maximize"></i>
+          </button>
+          <button id="close-button" type="button" data-label="appMenuClose" data-state="close" data-action="close">
+            <i class="i carbon:x"></i>
+          </button>
+        </span>
       </div>
     </div>
 

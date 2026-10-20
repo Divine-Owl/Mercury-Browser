@@ -67,6 +67,7 @@
     "test": "standard --verbose js/**/*.js main/*.js",
     "test:unit": "node --test \"test/*.test.js\"",
     "test:e2e": "playwright test test/e2e",
+    "test:e2e:headless": "xvfb-run -a playwright test test/e2e --retries=1",
     "test:lint": "node scripts/lintBaseline.js",
     "watch": "node ./scripts/watch.js",
     "startElectron": "electron . --development-mode",

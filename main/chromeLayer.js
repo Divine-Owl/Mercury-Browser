@@ -65,7 +65,17 @@ const chromeLayer = {
       revealFrom(win, { source: 'blur' })
     })
 
+    /* The island's window buttons show the window's state, so the layer tells the
+     page when it changes - and once now, so the buttons start right. */
+    win.on('maximize', function () {
+      pushWindowState(win)
+    })
+    win.on('unmaximize', function () {
+      pushWindowState(win)
+    })
+
     view.webContents.loadURL(CHROME_PAGE_URL)
+    pushWindowState(win)
   },
 
   destroy: function (win) {
@@ -137,6 +147,11 @@ const chromeLayer = {
       }, chromeTokens.motionRetract + RETRACT_MARGIN)
     } else {
       chromeLayer.updateGeometry(win)
+      /* The island's buttons show the window's state and the tab's, and the island
+         is what the user is looking at now - so both are told when it opens, not
+         only when the window manager or the page says they changed. */
+      pushWindowState(win)
+      pushNavState(win)
     }
   },
 
@@ -188,9 +203,72 @@ const chromeLayer = {
   }
 }
 
-/* §4.6's decision, applied: a report comes in, the pure rule answers, and the box
-   moves if the answer is not 'stay'. The rule owns what the state should be and
-   this owns asking it, so neither side guesses at the other's business. */
+/* The window's own state, the only party that can read it: the island's maximise
+   button shows which of the two it is offering. */
+function windowState (win) {
+  return {
+    maximized: win.isMaximized(),
+    fullscreen: win.isFullScreen()
+  }
+}
+
+function pushWindowState (win) {
+  chromeLayer.send(win, 'chrome-window-state', windowState(win))
+}
+
+/* The tab's state for the island's history buttons, pushed to the layer - the same
+   reading the handler below does, so the two cannot disagree. */
+function pushNavState (win) {
+  const view = getView(windows.getState(win).selectedView)
+  if (!view || view.webContents.isDestroyed()) {
+    return
+  }
+  chromeLayer.send(win, 'chrome-nav-state', {
+    canGoBack: view.webContents.canGoBack(),
+    canGoForward: view.webContents.canGoForward(),
+    loading: view.webContents.isLoading()
+  })
+}
+
+/* The tab's own state, for the island's history buttons. Only main can read it: the
+   view is a native view in this process, and Electron 43's canGoBack() is
+   synchronous - the old webviews.callAsync path expects a callback the method no
+   longer takes, so it never answers. */
+ipc.handle('chrome-nav-state', function (e) {
+  const win = windows.windowFromContents(e.sender)?.win
+  if (!win) {
+    return null
+  }
+  const view = getView(windows.getState(win).selectedView)
+  if (!view || view.webContents.isDestroyed()) {
+    return null
+  }
+  const state = {
+    canGoBack: view.webContents.canGoBack(),
+    canGoForward: view.webContents.canGoForward(),
+    loading: view.webContents.isLoading()
+  }
+  /* Pushed to the chrome layer from here rather than from the page that asked:
+     the layer is main's, and a message the UI page sends would arrive at main,
+     not at the layer. */
+  chromeLayer.send(win, 'chrome-nav-state', state)
+  return state
+})
+
+/* The same, for the window: the button asks after a click, because the window
+   manager's own notification is the only other way to learn it - and there is no
+   window manager behind a test display, so the ask is what works there. */
+ipc.handle('chrome-window-state', function (e) {
+  const win = windows.windowFromContents(e.sender)?.win
+  if (!win) {
+    return null
+  }
+  return windowState(win)
+})
+
+/* Focus leaves with the box: the pill had it, and a box that closed without handing
+   it back would leave the window with nothing focused in it. The tab view is the
+   thing the user was looking at. */
 function returnFocusToPage (win) {
   const view = getView(windows.getState(win).selectedView)
   if (view && !view.webContents.isDestroyed()) {
@@ -198,6 +276,9 @@ function returnFocusToPage (win) {
   }
 }
 
+/* §4.6's decision, applied: a report comes in, the pure rule answers, and the box
+   moves if the answer is not 'stay'. The rule owns what the state should be and
+   this owns asking it, so neither side guesses at the other's business. */
 function revealFrom (win, report) {
   const next = chromeReveal.next(chromeLayer.state(win), {
     source: report.source,
