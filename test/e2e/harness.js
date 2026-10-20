@@ -535,6 +535,34 @@ const setPageCornerRadius = (app, value) => inMain(app, async ({ webContents }, 
   `)
 }, value)
 
+/* Sets the chrome's hover tolerance through the settings page, the way a user
+   would: the input is given a value and told about it, and the page's own change
+   listener does the rest. Nothing here reaches into the app's settings - the
+   value only reaches the running browser if the whole chain survives: the
+   page's listener, the settings relay, the UI page's own settings module, and
+   main's. */
+const setHoverTolerance = (app, value) => inMain(app, async ({ webContents }, value) => {
+  const wc = webContents.getAllWebContents().find(w => w.getURL().includes('/pages/settings/'))
+  if (!wc) throw new Error('the settings page is not open')
+  return wc.executeJavaScript(`
+    (() => {
+      const input = document.getElementById('input-chrome-hover-tolerance')
+      if (!input) return 'no input'
+      input.value = ${JSON.stringify(String(value))}
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      return 'now ' + input.value
+    })()
+  `)
+}, value)
+
+/* Reads the settings page's own DOM, in the page's own context - what a user
+   would see on the page, not what the app believes the setting is. */
+const settingsDom = (app, script) => inMain(app, async ({ webContents }, script) => {
+  const wc = webContents.getAllWebContents().find(w => w.getURL().includes('/pages/settings/'))
+  if (!wc) throw new Error('the settings page is not open')
+  return wc.executeJavaScript(script)
+}, script)
+
 const readSettingsFile = userData => {
   const file = path.join(userData, 'settings.json')
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {}
@@ -593,6 +621,8 @@ module.exports = {
   readerPageFacts,
   clickShowDividerCheckbox,
   setPageCornerRadius,
+  setHoverTolerance,
+  settingsDom,
   readSettingsFile,
   versionBanner,
   electronPath

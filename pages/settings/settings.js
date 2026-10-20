@@ -300,6 +300,22 @@ pageCornerRadiusInput.addEventListener('change', function (e) {
   settings.set('pageCornerRadius', chromeSettings.pageCornerRadius.clamp(this.value))
 })
 
+/* chrome hover tolerance setting */
+
+/* The same shared module as the radius (§4.10): the tolerance is 0-24 px, and
+   the clamp is what turns the input's text into a number in range. The setting
+   is the hidden zone's width (§4.6) - the rows below the frame that summon the
+   island - and main reads it when it decides, so a change takes effect at once. */
+var hoverToleranceInput = document.getElementById('input-chrome-hover-tolerance')
+
+settings.get('hoverTolerance', function (value) {
+  hoverToleranceInput.value = chromeSettings.hoverTolerance.clamp(value)
+})
+
+hoverToleranceInput.addEventListener('change', function (e) {
+  settings.set('hoverTolerance', chromeSettings.hoverTolerance.clamp(this.value))
+})
+
 /* language setting*/
 
 var languagePicker = document.getElementById('setting-language-picker')

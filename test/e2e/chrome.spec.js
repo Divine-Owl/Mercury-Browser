@@ -18,7 +18,7 @@ alpha half of the claim stays with the source test rather than being faked here.
 
 const { test, expect } = require('@playwright/test')
 
-const { launchApp, inMain, ensureSettingsPage, openSettingsTab, layerFacts, viewFacts, chromeDom, cdp, pixels, driveWindow, focusContents, newTab, until, webContentsList, openAddressBar, enterUrl, addressInput, pressEnter, pressEscape, setPageCornerRadius, SHORT_SETTINGS_URL, SHORT_NEWTAB_URL, SETTINGS_PAGE, UI_URL } = require('./harness.js')
+const { launchApp, inMain, ensureSettingsPage, openSettingsTab, layerFacts, viewFacts, chromeDom, cdp, pixels, driveWindow, focusContents, newTab, until, sleep, webContentsList, openAddressBar, enterUrl, addressInput, pressEnter, pressEscape, setPageCornerRadius, setHoverTolerance, settingsDom, SHORT_SETTINGS_URL, SHORT_NEWTAB_URL, SETTINGS_PAGE, UI_URL } = require('./harness.js')
 
 const rgbOf = hex => {
   const value = parseInt(hex.slice(1), 16)
@@ -995,5 +995,101 @@ test.describe('the page’s corners', () => {
       return wc.executeJavaScript('window.__cornerSentinel')
     })
     expect(sentinel).toBe('kept')
+  })
+})
+
+/* Task 10: the hidden zone widens - hoverTolerance, live (§4.6).
+
+   The zone is the frame band, widened downward by the tolerance. At the default
+   0 the page's own first rows never summon the island - which is the reason the
+   default is 0 - and the setting is how a user asks for the rows just below the
+   frame to summon it instead.
+
+   The pointer goes into the tab view, not into the chrome layer: the tolerance
+   is about the page's rows, and the page is where the zone's edge is measured.
+   The tab view starts at the frame's bottom edge, so a window row of 20 is the
+   page's own row of 8; the numbers below are window rows and the helper
+   converts them.
+
+   The x of the move wanders by a pixel each time. The page reports its pointer
+   at most once every 50 ms, and a pointer that does not move does not report at
+   all, so a move that repeated the last position would be a move the page never
+   heard about. The row under test is the y. */
+test.describe('the hidden zone', () => {
+  let ctx
+  let moves = 0
+
+  /* The box's height, and the chrome page's own account of the state it was
+     told to show. */
+  const chromeBox = async app => {
+    const facts = await layerFacts(app)
+    const dom = await chromeDom(app, 'document.body.classList.contains("ct-open")')
+    return { height: facts.layer ? facts.layer.bounds.height : null, open: dom }
+  }
+
+  /* The pointer into the tab view, at a window row. */
+  const moveIntoPage = async (app, windowY) => {
+    const { views } = await viewFacts(app)
+    const view = views.find(v => v.url && v.url.includes('/pages/settings/'))
+    if (!view) throw new Error('the settings page is not open')
+    await driveWindow(app, { op: 'focus' })
+    await focusContents(app, 'pages/settings/')
+    moves += 1
+    await cdp(app, 'pages/settings/', [
+      { method: 'Input.dispatchMouseEvent', params: { type: 'mouseMoved', x: 120 + moves, y: windowY - view.bounds.y } }
+    ])
+  }
+
+  test.beforeAll(async () => {
+    ctx = await launchApp()
+    // The settings page: it is the surface the setting is changed on, and it is
+    // a tab view, which is where the pointer report comes from.
+    await openSettingsTab(ctx.ui, ctx.app)
+  })
+
+  test.afterAll(async () => {
+    await ctx.close()
+  })
+
+  test('widens with the tolerance, live', async () => {
+    // The default: the zone is the frame and nothing else. A move into the
+    // page, 20 rows below the window's top edge, does not open the island.
+    await moveIntoPage(ctx.app, 20)
+    await moveIntoPage(ctx.app, 20)
+    await sleep(400)
+    expect((await chromeBox(ctx.app)).height).toBe(12)
+    expect((await chromeBox(ctx.app)).open).toBe(false)
+
+    // 24: the same move opens it. The zone is the frame plus 24 rows, and the
+    // page's own row of 8 - the window's row of 20 - is inside it. The move is
+    // repeated while it waits, because the page reports at most once every
+    // 50 ms and the setting itself has to travel to main first.
+    await setHoverTolerance(ctx.app, 24)
+    await until(async () => {
+      await moveIntoPage(ctx.app, 20)
+      return (await chromeBox(ctx.app)).height === 79
+    }, { what: 'the widened zone to open the island' })
+    expect((await chromeBox(ctx.app)).open).toBe(true)
+
+    // Back to 0: the same move closes it again. The zone is the frame again,
+    // and the page's row is below it.
+    await setHoverTolerance(ctx.app, 0)
+    await until(async () => {
+      await moveIntoPage(ctx.app, 20)
+      return (await chromeBox(ctx.app)).height === 12
+    }, { what: 'the zone to narrow back to the frame' })
+    expect((await chromeBox(ctx.app)).open).toBe(false)
+
+    // and the row is a row: the label came from the locale (a key the locale
+    // does not know renders as the word "undefined"), and the input holds the
+    // setting - the default, 0, while the setting is unset.
+    const row = await settingsDom(ctx.app, `(() => {
+      const input = document.getElementById('input-chrome-hover-tolerance')
+      const label = document.querySelector('label[for="input-chrome-hover-tolerance"]')
+      return { value: input ? input.value : 'no input', label: label ? label.textContent : 'no label' }
+    })()`)
+    expect(row.value).toBe('0')
+    expect(row.label).not.toBe('no label')
+    expect(row.label).not.toBe('undefined')
   })
 })

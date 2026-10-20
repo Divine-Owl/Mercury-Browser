@@ -2587,6 +2587,7 @@
   "settingsBlockImagesToggle",
   "settingsBlockScriptsToggle",
   "settingsBlockedRequestCount.unsafeHTML",
+  "settingsChromeHoverTolerance",
   "settingsContentBlockingExceptions",
   "settingsContentBlockingLevel0",
   "settingsContentBlockingLevel1",

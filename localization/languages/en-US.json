@@ -163,6 +163,7 @@
     "settingsUserscriptsToggle": "Enable user scripts",
     "settingsShowDividerToggle": "Show divider between tabs",
     "settingsRoundedPageCorners": "Rounded page corners (px, 0 to disable)",
+    "settingsChromeHoverTolerance": "Chrome hover tolerance (px above the page's top edge)",
     "settingsLanguageSelection": "Language: ",
     "settingsSeparateTitlebarToggle": "Use separate title bar",
     "settingsAutoplayToggle": "Enable Autoplay",
