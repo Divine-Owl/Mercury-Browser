@@ -307,10 +307,12 @@ Each criterion is mechanically checkable.
   edge dissolves into the display.
 - The island is a **lifted surface** over that frame: its own background (`--island-bg`, `#23252b`
   in the dark variant — a step off the frame, not the same black), a 1 px `--island-border`, and a
-  deeper `--island-shadow` (`0 16px 46px` plus `0 2px 8px`) than a plain bar would need. Its radius
+  deeper `--island-shadow` (`0 2px 5px` plus `0 1px 2px`) than a plain bar would need. Its radius
   is the **capsule rule** — half the island's height, so the row's ends are semicircles — and the
   chrome box reserves 8 px under it for the shadow to paint in, so the box's own edge never cuts
-  that shadow into a hard line.
+  that shadow into a hard line. The shadow is sized to that room: its reach, the offset plus the
+  blur, has to fit in the 8 px. *(2026-10-21: the shadow was the spike's `0 16px 46px`, which wanted
+  62 px of room; the layer's edge cut it off and the island sat on a hard line.)*
   *(Maintainer's call, 2026-10-19, after the layering spike was recovered and re-run: with
   `--island-bg` equal to `--frame-bg` the island had no edge at all — a black band, not an
   object — which the spike's surface had and this table had lost.)*

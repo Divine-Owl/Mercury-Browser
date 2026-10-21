@@ -16,7 +16,11 @@
 
    The island is a **lifted surface**, not a second copy of the frame's colour: it
    carries its own --island-bg (a step off --frame-bg), a --island-border and a
-   deeper --island-shadow, which is what makes it read as an object over the page
+   deeper --island-shadow, which is what makes it read as an object over the page.
+   The shadow is sized to the room the layer gives it: 8 px under the island, so
+   its reach - the offset plus the blur - has to fit in 8. The spike's shadow
+   (`0 16px 46px`) wanted 62, and the layer's edge cut it off, which reads as a
+   hard line under the island rather than as a shadow (2026-10-21).
    instead of a hole in the frame. --address-bg is the same idea one level in: the
    address pill's own surface, a step off the island it sits on. The dark variant
    keeps §4.8's AMOLED frame and lifts the island off it (the maintainer's call of
@@ -59,7 +63,7 @@ var chromeTokens = {
     '--accent': '#4457c8',
     '--island-bg': '#ffffff',
     '--island-border': 'rgba(0, 0, 0, 0.10)',
-    '--island-shadow': '0 16px 46px rgba(0, 0, 0, 0.16), 0 2px 8px rgba(0, 0, 0, 0.10)',
+    '--island-shadow': '0 2px 5px rgba(0, 0, 0, 0.15), 0 1px 2px rgba(0, 0, 0, 0.10)',
     '--island-radius': 'calc(var(--island-h) / 2)',
     '--address-bg': '#f1f1f4',
     '--r-window': '12px',
@@ -96,7 +100,7 @@ var chromeTokens = {
     '--accent': '#8f9dff',
     '--island-bg': '#23252b',
     '--island-border': 'rgba(255, 255, 255, 0.14)',
-    '--island-shadow': '0 16px 46px rgba(0, 0, 0, 0.62), 0 2px 8px rgba(0, 0, 0, 0.45)',
+    '--island-shadow': '0 2px 5px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.45)',
     '--island-radius': 'calc(var(--island-h) / 2)',
     '--address-bg': '#1a1c22',
     '--r-window': '12px',

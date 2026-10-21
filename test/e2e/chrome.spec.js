@@ -135,6 +135,39 @@ test.describe('the chrome layer', () => {
     expect(samples[0].a).toBe(0)
   })
 
+  /* The island casts a shadow, and a shadow needs room. The layer gives the
+     island 8 px under it - the rest of the layer's height - and a shadow with
+     a 16 px offset and a 46 px blur wants 62. The excess is cut off at the
+     layer's edge, and a cut-off shadow reads as a hard line under the island
+     rather than as a shadow.
+
+     So the shadow has to fit the room it is given: the offsets and the blur
+     of every shadow the island casts, summed, must not exceed it. */
+  test('the island\'s shadow fits the room the layer gives it', async () => {
+    await openAddressBar(ctx.ui, ctx.app)
+
+    // the island drops in over §4.12's 140 ms, and a rect measured mid-drop is
+    // a rect measured at the wrong scale
+    await until(async () => chromeDom(ctx.app, 'getComputedStyle(document.getElementById("island")).transform === "none"'), {
+      what: 'the island to settle'
+    })
+
+    const shadow = await chromeDom(ctx.app, String.raw`(() => {
+      const island = document.getElementById('island')
+      const rect = island.getBoundingClientRect()
+      const room = window.innerHeight - rect.bottom
+      const shadows = getComputedStyle(island).boxShadow
+        .split(/,(?![^()]*\))/)
+        .map(part => (part.match(/(-?[\d.]+)px\s+(-?[\d.]+)px\s+(-?[\d.]+)px/) || []).slice(1).map(Number))
+        .filter(l => l.length === 3)
+      const reach = shadows.length ? Math.max.apply(null, shadows.map(l => l[1] + l[2])) : 0
+      return { room: Math.round(room), reach: Math.round(reach), count: shadows.length, raw: String(getComputedStyle(island).boxShadow).slice(0, 90) }
+    })()`)
+
+    expect(shadow.count).toBeGreaterThan(0)
+    expect(shadow.reach).toBeLessThanOrEqual(shadow.room)
+  })
+
   test('sits above the page, exactly as tall as the frame', async () => {
     const facts = await layerFacts(ctx.app)
 

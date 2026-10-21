@@ -71,7 +71,12 @@ const CHROME_PAGE = 'mercury://app/pages/chrome/index.html'
    window manager behind the display, injected input needing a focused window) are
    the same there, which is why this is xvfb and not Electron's own --headless:
    that one boots the app but crashes the specs that drive the chrome layer. */
-const CHROMIUM_FLAGS = ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage']
+/* --ozone-platform=x11 is what makes a run headless. Chromium picks Wayland
+   whenever WAYLAND_DISPLAY is set, so a run under xvfb-run still renders on the
+   maintainer's own session - the app's windows appear on the desktop, and the
+   run fails outright when that session is not there. Forcing X11 puts the app
+   on the virtual X server, which is the whole point of running it headless. */
+const CHROMIUM_FLAGS = ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--ozone-platform=x11']
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
