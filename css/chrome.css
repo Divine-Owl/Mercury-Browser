@@ -61,12 +61,22 @@ body {
   overflow: hidden;
 }
 
-/* Pills are state, not a tab bar: width and colour carry the meaning, and there
-   is no text (§4.3).
+/* A pill is a tab, and it is two things at once: the strip grows into the
+   island, so the same element is a mark in the frame and a labelled tab in the
+   island.
 
-   The pill is a button whose box is the row's full height, and the bar inside it
-   is what is painted: §4.3 makes the hit box the frame's full height, because a
-   4 px press target is not a target, while 4 px is all a user should see. */
+   In the frame a pill is state: width and colour carry the meaning, and there
+   is no text (§4.3). The pill is a button whose box is the row's full height,
+   and the bar inside it is what is painted: §4.3 makes the hit box the frame's
+   full height, because a 4 px press target is not a target, while 4 px is all a
+   user should see.
+
+   In the island a pill names its page - a dot in the page's own colour and the
+   page's registrable domain beside it - the way the layering spike's did. The
+   island is a black bar with the content floating in it, so a pill paints
+   nothing of its own there: the frame's bar is the frame's drawing and is not
+   drawn in the island, and the island's own pill carries no background of its
+   own (2026-10-21). */
 .pill {
   flex: none;
   width: var(--pill-w);
@@ -93,14 +103,54 @@ body {
   background: var(--accent);
 }
 
-/* Drawn height: 4 px in the frame (§4.3's --strip-h − 8px) and 16 px in the
-   island, whose row is 53 px tall. */
+/* Drawn height: 4 px in the frame (§4.3's --strip-h − 8px). The island's pill
+   is as tall as the address pill beside it, so the island's row is one row of
+   equal-height pills. */
 #frame .pill-bar {
   height: var(--pill-h-frame);
 }
 
+/* The dot: the page's own colour, or the stylesheet's --accent when the page
+   has none. It is a square with rounded corners, as the spike's was. */
+.pill-dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  background: var(--accent);
+}
+
+.pill-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+/* The frame shows the mark; the island shows the dot and the name. */
+#frame .pill-dot,
+#frame .pill-label {
+  display: none;
+}
+
 #island .pill-bar {
+  display: none;
+}
+
+#island .pill {
+  width: auto;
+  min-width: var(--pill-w);
   height: var(--pill-h-island);
+  padding: 0 12px;
+  gap: 8px;
+  border-radius: 18px;
+}
+
+/* The active pill is marked with a tint of the page's own colour - the spike's
+   - rather than with a white wash, which read as a slab across the island. */
+#island .pill.active {
+  width: auto;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 /* The island, in full width minus the gap on each side in M1: the spec does not
    fix its width, and M3 refines it. It is as tall as the token says and starts

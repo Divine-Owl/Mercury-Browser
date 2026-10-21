@@ -8,9 +8,11 @@
 
    --pill-h-island is this milestone's addition, not §4.10's: §4.3 states the
    frame's drawn pill height (clamp(3px, --strip-h − 8px, 12px)) but not the
-   island's, and M3 may revise it. --r-page is only the fallback the page paints
-   with before main has pushed the pageCornerRadius setting - the setting rules
-   (§4.7).
+   island's, and M3 may revise it. It is the island's pill's own height, and it
+   is the address pill's height too, so the island's row is one row of
+   equal-height pills (2026-10-21). --r-page is only the fallback the page
+   paints with before main has pushed the pageCornerRadius setting - the setting
+   rules (§4.7).
 
    The island is a **lifted surface**, not a second copy of the frame's colour: it
    carries its own --island-bg (a step off --frame-bg), a --island-border and a
@@ -68,7 +70,7 @@ var chromeTokens = {
     '--pill-w': '26px',
     '--pill-active-w': '38px',
     '--pill-h-frame': '4px',
-    '--pill-h-island': '16px',
+    '--pill-h-island': '36px',
 
     /* §4.12's motion, as tokens: the island drops in from the frame's edge and
        retracts the same way, and main reads motionRetract to know how long the
@@ -105,7 +107,7 @@ var chromeTokens = {
     '--pill-w': '26px',
     '--pill-active-w': '38px',
     '--pill-h-frame': '4px',
-    '--pill-h-island': '16px',
+    '--pill-h-island': '36px',
 
     /* §4.12's motion, as tokens: the island drops in from the frame's edge and
        retracts the same way, and main reads motionRetract to know how long the

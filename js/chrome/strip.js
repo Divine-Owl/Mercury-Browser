@@ -1,4 +1,8 @@
-/* The strip: one pill per tab, in order, and a press that switches (§4.3). */
+/* The strip: one pill per tab, in order, and a press that switches (§4.3).
+
+   The strip is also the island's row - one element, grown - so a pill is both
+   a mark in the frame and a labelled tab in the island. The frame shows the
+   mark; the island shows the dot and the page's name. */
 
 /* global ipc */
 
@@ -26,7 +30,7 @@ var strip = {
   update: function (summary) {
     var tabs = (summary && summary.tabs) || []
     var signature = tabs.map(function (tab) {
-      return [tab.id, tab.active, tab.accent, tab.title].join('\u0000')
+      return [tab.id, tab.active, tab.accent, tab.title, tab.label].join('\u0000')
     }).join('|')
 
     if (signature === strip.signature) {
@@ -62,7 +66,23 @@ var strip = {
         bar.style.background = tab.accent
       }
 
+      /* The island's pills wear the page's name beside a dot in the page's own
+         colour - the way the spike's did. The frame's pills are bare marks, so
+         the two parts are hidden in the state that does not want them: the bar
+         is the frame's drawing, the dot and the label are the island's. */
+      var dot = document.createElement('span')
+      dot.className = 'pill-dot'
+      if (tab.accent) {
+        dot.style.background = tab.accent
+      }
+
+      var label = document.createElement('span')
+      label.className = 'pill-label'
+      label.textContent = tab.label || ''
+
       pill.appendChild(bar)
+      pill.appendChild(dot)
+      pill.appendChild(label)
       strip.el.appendChild(pill)
     })
   },

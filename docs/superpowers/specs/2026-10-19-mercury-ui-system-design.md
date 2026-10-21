@@ -199,13 +199,18 @@ Each criterion is mechanically checkable.
 
 ### 4.3 The strip (pills)
 
-- One pill per tab, in tab order. Pills are state, not a tab bar: no titles, no icons — width and
-  colour carry the meaning.
+- One pill per tab, in tab order. In the **frame** a pill is state, not a tab bar: no titles, no
+  icons — width and colour carry the meaning. In the **island** a pill names its page: a dot in the
+  page's own colour and the page's registrable domain beside it, the way the layering spike's did
+  (2026-10-21, §4.3 amendment). The island is a black bar with the content floating in it, so an
+  island's pill paints nothing of its own: the frame's bar is the frame's drawing, and the island's
+  own pill carries no background but the active one's faint tint of the page's own colour.
 - Sizes (tokens): `--pill-w` 26 px, `--pill-active-w` 38 px, drawn height
   `clamp(3px, --strip-h − 8px, 12px)`, `--strip-gap` 4 px, `--strip-pad` 6 px. Each pill's **hit
   box** is the frame's full height — a 4 px drag target is not a target. Inside the island the pills
-  take `--pill-h-island` (M1: 16 px): the drawn-height formula is the frame's, and the island's
-  height is a separate token so a theme can set the two states apart.
+  take `--pill-h-island` (M1: 36 px, the address pill's height, so the island's row is one row of
+  equal-height pills): the drawn-height formula is the frame's, and the island's height is a
+  separate token so a theme can set the two states apart.
 - Alignment: `--strip-align`, default `safe center`. When the row fits, it is centred; `safe` keeps
   the row's start reachable once it overflows.
 - **No shrinking.** Pills keep their widths; a row that does not fit scrolls.
@@ -225,7 +230,8 @@ Each criterion is mechanically checkable.
   [controls]`.
 - **Address pill.** At rest: the active tab's favicon and registrable domain. On hover: the full
   URL. Clicking it (or Ctrl+L) begins in-place editing with the text selected; Enter navigates;
-  Escape cancels the edit, a second Escape retracts.
+  Escape cancels the edit, a second Escape retracts. A tab with no page has no domain, and the
+  pill rests with the locale's name for one (`newTabLabel`) rather than empty (2026-10-21).
 - **Suggestions.** Typing grows the island downward into a list; the pill row becomes the list's
   header. The list reaches ≈250 px, scrolls, and is keyboard-navigable. Existing machinery is
   reused — search suggestions, bangs, calculator, bookmarks, history (`js/searchbar/*`).

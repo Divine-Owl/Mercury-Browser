@@ -70,10 +70,12 @@ var chromeBridge = {
 
   /* The pills' own state, and nothing else: a pill is a tab the user can press,
      so it needs an identity, whether it is the one being shown, what the tooltip
-     should say, and the page's colour if the page has one (§4.2's "no text, no
-     icons: width and colour carry the meaning"). Anything another milestone's
-     chrome wants - a favicon, the registrable domain for the address pill, the
-     full URL - is added with the consumer that reads it. */
+     should say, the name it wears in the island, and the page's colour if the
+     page has one (§4.2). The name is the same one the address pill rests on -
+     the page's registrable domain - so the two agree on which page a pill is;
+     a tab with no page wears the locale's name for one. Anything another
+     milestone's chrome wants - a favicon, the full URL - is added with the
+     consumer that reads it. */
   summary: function () {
     /* window.tabs only exists once a task has been selected, which is session
        restore's job - and restore is asynchronous, so the first publish (one
@@ -86,19 +88,25 @@ var chromeBridge = {
 
     var selected = tabs.getSelected()
     var active = tabs.get(selected)
+    /* The name a pill wears, and the address pill rests on: the page's
+       registrable domain, or the locale's name for a tab that has no page. */
+    var nameOf = function (tab) {
+      return (tab && urlParser.getDomain(tab.url)) || l('newTabLabel')
+    }
     return {
       tabs: tabs.get().map(function (tab) {
         return {
           id: tab.id,
           active: tab.id === selected,
           title: tab.title || '',
+          label: nameOf(tab),
           accent: (tab.themeColor && tab.themeColor.color) || (tab.backgroundColor && tab.backgroundColor.color) || null
         }
       }),
       /* The address pill's two states (§4.4): the active tab's registrable domain
          at rest, its full URL on hover and while editing. The favicon is not in
          the tab state yet, so the pill shows none until a milestone supplies one. */
-      atRest: active ? urlParser.getDomain(active.url) : '',
+      atRest: active ? nameOf(active) : '',
       fullUrl: active ? active.url : '',
       favicon: active && active.favicon ? active.favicon : null
     }

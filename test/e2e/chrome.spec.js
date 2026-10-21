@@ -414,19 +414,23 @@ test.describe('the strip', () => {
     expect(first.barHeight).toBe(4) // --pill-h-frame: what is drawn
   })
 
-  test('paints a taller bar inside the island, whose row is taller', async () => {
+  test('paints the island’s pills at the address pill’s height', async () => {
     await openAddressBar(ctx.ui, ctx.app)
 
-    // The island drops in over §4.12's 140 ms, and a bar measured mid-transition
-    // is a bar measured at the wrong scale.
-    await until(async () => (await pills(ctx.app))[0].barHeight === 16, {
-      what: 'the island’s pill bar to settle at 16 px'
+    // The island drops in over §4.12's 140 ms, and a pill measured mid-transition
+    // is a pill measured at the wrong scale.
+    await until(async () => (await pills(ctx.app))[0].hitHeight === 36, {
+      what: 'the island’s pill to settle at 36 px'
     })
 
     const [first] = await pills(ctx.app)
 
-    expect(first.barHeight).toBe(16) // --pill-h-island: §4.3's separate token
-    expect(first.hitHeight).toBeGreaterThan(12) // the island's row, not the frame's
+    // --pill-h-island: the island's row is one row of equal-height pills, the
+    // address pill's height (2026-10-21)
+    expect(first.hitHeight).toBe(36)
+    // and the bar is the frame's drawing: in the island a pill paints a dot and
+    // a name instead, so that the island reads as a black bar with content in it
+    expect(first.barHeight).toBe(0)
   })
 
   test('switches tabs when a pill is clicked', async () => {
@@ -1166,5 +1170,85 @@ test.describe('the old chrome', () => {
     expect(state.isNewTab).toBe(true)
     expect(state.ntpContent).toBe(true)
     expect(state.ntpHeight).toBeGreaterThan(0)
+  })
+})
+
+test.describe('the pills and the address pill', () => {
+  let ctx
+
+  test.beforeAll(async () => {
+    // A fresh profile: its first tab is the new tab page, which has no URL, so
+    // it is the case where a pill has no name to show.
+    ctx = await launchApp()
+  })
+
+  test.afterAll(async () => {
+    await ctx.close()
+  })
+
+  /* The island's pills carry the page's name, the way the spike's did: a dot in
+     the page's own colour and a short label beside it. The frame's collapsed
+     pills stay bare marks - the text is the island's. */
+  test("the island's pills carry the page's name", async () => {
+    await openAddressBar(ctx.ui, ctx.app)
+    // the pills are built from the summary the UI page publishes, so they
+    // arrive a frame or two after the box is out
+    await until(async () => chromeDom(ctx.app, 'document.querySelectorAll("#strip .pill").length > 0'), {
+      what: 'the strip to have its pills'
+    })
+
+    const pills = await chromeDom(ctx.app, `Array.from(document.querySelectorAll('#strip .pill')).map(p => ({
+      label: (p.querySelector('.pill-label') || {}).textContent || '',
+      hasDot: !!p.querySelector('.pill-dot')
+    }))`)
+
+    expect(pills.length).toBeGreaterThan(0)
+    for (const pill of pills) {
+      expect(pill.label.trim().length).toBeGreaterThan(0)
+      expect(pill.hasDot).toBe(true)
+    }
+  })
+
+  /* The island is a black bar with the content floating in it. A pill that
+     painted a white background broke that: the white wash read as a slab
+     across the island rather than as a tab. The frame's marks keep theirs -
+     those are the spike's, and they are what makes the strip read as a row. */
+  test("the island's pills paint no background of their own", async () => {
+    await openAddressBar(ctx.ui, ctx.app)
+    await until(async () => chromeDom(ctx.app, 'document.querySelectorAll("#strip .pill").length > 0'), {
+      what: 'the strip to have its pills'
+    })
+
+    const paint = await chromeDom(ctx.app, `(() => {
+      const pill = document.querySelector('#strip .pill')
+      const bar = pill.querySelector('.pill-bar')
+      return {
+        island: getComputedStyle(document.getElementById('island')).backgroundColor,
+        pill: getComputedStyle(pill).backgroundColor,
+        bar: getComputedStyle(bar).backgroundColor,
+        barShown: getComputedStyle(bar).display !== 'none' && bar.getBoundingClientRect().height > 0
+      }
+    })()`)
+
+    // the frame's bar is the frame's drawing: it is not drawn in the island
+    expect(paint.barShown).toBe(false)
+    // and what the pill does paint is a tint of the page's own colour, never
+    // the white wash that read as a slab across the island
+    expect(paint.pill).not.toMatch(/rgba\(255, 255, 255/)
+  })
+
+  /* A tab with no URL has no domain, and a pill with nothing in it reads as a
+     broken control rather than as a new tab. */
+  test('the address pill never rests empty', async () => {
+    await until(async () => chromeDom(ctx.app, 'document.getElementById("address-input").value.length > 0'), {
+      what: 'the address pill to have something to show'
+    })
+
+    const rest = await chromeDom(ctx.app, `({
+      value: document.getElementById('address-input').value,
+      title: document.getElementById('address').title
+    })`)
+
+    expect(rest.value.trim().length).toBeGreaterThan(0)
   })
 })
