@@ -53,6 +53,8 @@ Not in M1, deliberately: strip scrolling/drag/keep-in-view and the overview (M2)
 
 | Fact | Consequence here |
 | --- | --- |
+| The app segfaults sometimes, and the crash is native: the main process dies with SIGSEGV, silently, after a navigation | Measured 2026-10-21: 3 crashes in one 33-test run, none in the launch spec, none in an app left idle for 90 s. The backtrace is still unknown - gdb breaks Playwright's handshake, and the crashpad dumps are minidumps with no reader on this machine. A crashed app takes its describe's remaining tests with it ("did not run"); the CI's retries give the next attempt a fresh app, which is why it costs one test rather than the file. The harness reaps the orphaned renderers, which is what stops one crash from starving the launches after it. |
+| The harness's throwaway home is a tmpfs, and every launch left one behind | A long enough run filled /tmp and the app could not write its cache: the window never opened and every test timed out. The home is now removed when the app closes (2026-10-21), which is what the CI's timeouts were. |
 | `webContents.sendInputEvent` is dropped unless the window is focused | Tests call `win.focus()` and `wc.focus()` before injecting; real use has focus (R4) |
 | Drag regions (`-webkit-app-region: drag`) deliver hover but **swallow presses** | Every interactive control opts out with `no-drag` (R5); the frame's double-click is not ours (see deviations) |
 | CDP `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent` deliver; `sendInputEvent`'s wheel does not | All pointer/key injection in tests goes through `webContents.debugger` |
