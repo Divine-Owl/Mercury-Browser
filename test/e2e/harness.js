@@ -110,6 +110,25 @@ function reapLeftovers (home) {
   }
 }
 
+/* Hyprland: a visible run's windows go to workspace 1, so the tests do not follow
+   the user around their session. The app's pid finds its window; where there is no
+   Hyprland (CI, another compositor) this is a no-op rather than a failure.
+
+   The suite's default headless mode needs none of this: under xvfb-run the app
+   renders on a virtual X server and never appears on the compositor at all. */
+function pinToWorkspaceOne (app) {
+  try {
+    const pid = app.process().pid
+    const clients = JSON.parse(execFileSync('hyprctl', ['clients', '-j'], { encoding: 'utf8' }))
+    const client = clients.find(c => c.pid === pid)
+    if (client) {
+      execFileSync('hyprctl', ['dispatch', 'movewindow', client.address, '1'], { stdio: 'ignore' })
+    }
+  } catch (e) {
+    // no hyprctl, no json, or no window yet - not a reason to fail a test
+  }
+}
+
 const stat = dir => {
   try {
     const s = fs.statSync(dir)
@@ -168,6 +187,9 @@ async function launchApp (options = {}) {
   ).catch(() => {})
 
   const userData = await app.evaluate(({ app }) => app.getPath('userData'))
+
+  // a visible run's window goes to workspace 1, so it does not follow the user
+  pinToWorkspaceOne(app)
 
   return {
     app,
