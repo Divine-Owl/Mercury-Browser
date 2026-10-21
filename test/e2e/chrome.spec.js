@@ -114,6 +114,15 @@ test.describe('the chrome layer', () => {
     await ctx.close()
   })
 
+  /* Putting the island back: a case that opens it does not get to decide what
+     the next case sees. The blur is what closes it for a user. */
+  const closeIsland = async () => {
+    await driveWindow(ctx.app, { op: 'emit', event: 'blur' })
+    await until(async () => !(await chromeDom(ctx.app, 'document.body.classList.contains("ct-open")')), {
+      what: 'the box to close'
+    })
+  }
+
   /* The layer is a view of its own, and a view has a background colour of its
      own - Electron's default is opaque white. The page's CSS says transparent,
      but the view behind the page is white, so everything the layer does not
@@ -133,6 +142,8 @@ test.describe('the chrome layer', () => {
     const samples = await pixels(ctx.app, 'mercury://app/pages/chrome/index.html', [{ x: 200, y: 14 }])
 
     expect(samples[0].a).toBe(0)
+
+    await closeIsland()
   })
 
   /* The island casts a shadow, and a shadow needs room. The layer gives the
@@ -166,6 +177,8 @@ test.describe('the chrome layer', () => {
 
     expect(shadow.count).toBeGreaterThan(0)
     expect(shadow.reach).toBeLessThanOrEqual(shadow.room)
+
+    await closeIsland()
   })
 
   test('sits above the page, exactly as tall as the frame', async () => {
