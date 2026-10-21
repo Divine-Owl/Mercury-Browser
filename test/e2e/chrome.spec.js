@@ -1093,3 +1093,78 @@ test.describe('the hidden zone', () => {
     expect(row.label).not.toBe('undefined')
   })
 })
+
+test.describe('the old chrome', () => {
+  let ctx
+
+  test.beforeAll(async () => {
+    // A fresh profile. Its first tab is the new tab page, which has no URL, so
+    // its view is never given one and is never attached to the window. That is
+    // the state this describe is about: the one in which nothing covers the UI
+    // page, and the old chrome showed through behind the strip.
+    ctx = await launchApp()
+  })
+
+  test.afterAll(async () => {
+    await ctx.close()
+  })
+
+  /* The old chrome - Min's navbar with its URL bar, its navigation buttons and
+     its tab strip, and Min's Linux window buttons - must not be painted.
+
+     The tab view covers it whenever a tab has a page to show. A new tab has
+     none, and the covering is not enough there, so the old chrome is not
+     painted at all. The markup stays: the modules that anchor to it are
+     rewritten in M3, and they still have to find it.
+
+     "Not painted" is measured two ways, because either alone can be fooled:
+     the elements are not laid out (nothing of them has a height), and nothing
+     in the band is hit-testable to them (the old URL bar cannot be clicked). */
+  test('is not painted when the tab has no page to show', async () => {
+    const { views } = await viewFacts(ctx.app)
+
+    // The precondition, stated so the case cannot pass for the wrong reason:
+    // no tab view is attached, so the UI page is what the user sees.
+    const pageViews = views.filter(v => v.url && v.url !== UI_URL && !v.url.includes('/pages/chrome/'))
+    expect(pageViews).toEqual([])
+
+    const band = await ctx.ui.evaluate(() => {
+      const navbar = document.getElementById('navbar')
+      const controls = document.getElementById('linux-control-buttons')
+      let inNavbar = 0
+      let inControls = 0
+      for (const x of [20, 200, 400, 600, 800, 1000]) {
+        for (const y of [2, 6, 12, 20, 30, 40, 47]) {
+          const el = document.elementFromPoint(x, y)
+          if (!el) continue
+          if (el.closest('#navbar')) inNavbar += 1
+          if (el.closest('#linux-control-buttons')) inControls += 1
+        }
+      }
+      return {
+        navbarHeight: navbar.getBoundingClientRect().height,
+        controlsHeight: controls.getBoundingClientRect().height,
+        inNavbar,
+        inControls
+      }
+    })
+
+    expect(band.navbarHeight).toBe(0)
+    expect(band.controlsHeight).toBe(0)
+    expect(band.inNavbar).toBe(0)
+    expect(band.inControls).toBe(0)
+  })
+
+  /* The new tab page itself is untouched: it lives outside the navbar, and it
+     is what the UI page shows now that the old chrome is not painted. */
+  test('leaves the new tab page alone', async () => {
+    const state = await ctx.ui.evaluate(() => ({
+      isNewTab: document.body.classList.contains('is-ntp'),
+      ntpContent: getComputedStyle(document.getElementById('ntp-content')).display !== 'none',
+      ntpHeight: Math.round(document.getElementById('ntp-content').getBoundingClientRect().height)
+    }))
+    expect(state.isNewTab).toBe(true)
+    expect(state.ntpContent).toBe(true)
+    expect(state.ntpHeight).toBeGreaterThan(0)
+  })
+})

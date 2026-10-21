@@ -1,0 +1,26 @@
+/* Mercury's chrome - the frame, the strip, the island - is a layer of its own
+   on top of the page. The old chrome must never be seen.
+
+   The tab view covers it whenever a tab has a page to show, but a new tab has
+   none: its view is never given a URL, so it is never attached, and the UI
+   page - with Min's navbar, its URL bar, its navigation buttons and its tab
+   strip - shows through. Min's Linux window buttons sit in the same band and
+   are visible there too.
+
+   So the old chrome is not painted. The markup stays: ~15 modules still anchor
+   to it, and M3 rewrites them to live inside the island. Hiding it here is
+   stronger than the covering it was meant to rely on, and it is the only way
+   to make the promise hold for a tab that has no page.
+
+   Nothing else is lost with it. The new tab page lives in #ntp-content, the
+   search box in #searchbar - both outside the navbar - and the window is
+   dragged by the frame band, which has its own drag region. */
+
+#navbar {
+  display: none;
+}
+
+/* body.linux sets this to display: block, so it needs the same weight. */
+body.linux #linux-control-buttons {
+  display: none;
+}

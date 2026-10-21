@@ -200,6 +200,13 @@ async function launchApp (options = {}) {
     async close () {
       await app.close().catch(() => {})
       reapLeftovers(home)
+      // The throwaway home is a few megabytes, and /tmp is a tmpfs: on a
+      // long enough run it fills up, and then the app cannot write its cache -
+      // the window never opens and every test times out. Only homes the
+      // harness made are removed; a caller-supplied one is left alone.
+      if (home.startsWith(path.join(os.tmpdir(), 'mercury-e2e-'))) {
+        fs.rmSync(home, { recursive: true, force: true })
+      }
     }
   }
 }
