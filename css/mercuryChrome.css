@@ -24,3 +24,10 @@
 body.linux #linux-control-buttons {
   display: none;
 }
+
+/* The task switcher sat under the navbar, so hiding the navbar let it out.
+   It opens the task overlay, which is M2's - and until then it is the old
+   chrome's last button on the page. */
+#switch-task-button {
+  display: none;
+}

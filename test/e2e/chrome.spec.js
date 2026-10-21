@@ -1135,6 +1135,9 @@ test.describe('the old chrome', () => {
     const band = await ctx.ui.evaluate(() => {
       const navbar = document.getElementById('navbar')
       const controls = document.getElementById('linux-control-buttons')
+      // the task switcher sat under the navbar, and hiding the navbar let it
+      // out: it is the old chrome's as much as the navbar was
+      const switcher = document.getElementById('switch-task-button')
       let inNavbar = 0
       let inControls = 0
       for (const x of [20, 200, 400, 600, 800, 1000]) {
@@ -1148,6 +1151,7 @@ test.describe('the old chrome', () => {
       return {
         navbarHeight: navbar.getBoundingClientRect().height,
         controlsHeight: controls.getBoundingClientRect().height,
+        switcherHeight: switcher ? switcher.getBoundingClientRect().height : 0,
         inNavbar,
         inControls
       }
@@ -1155,6 +1159,7 @@ test.describe('the old chrome', () => {
 
     expect(band.navbarHeight).toBe(0)
     expect(band.controlsHeight).toBe(0)
+    expect(band.switcherHeight).toBe(0)
     expect(band.inNavbar).toBe(0)
     expect(band.inControls).toBe(0)
   })
