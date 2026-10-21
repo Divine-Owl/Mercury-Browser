@@ -169,7 +169,22 @@ async function launchApp (options = {}) {
   const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: config }
   delete env.XDG_DATA_HOME
 
-  const app = await _electron.launch({ args, cwd: ROOT, env, timeout: 60000 })
+  const app = await _electron.launch({
+    args,
+    cwd: ROOT,
+    env,
+    timeout: 60000,
+    // the app's own output, and a way to run it under a debugger: the app
+    // segfaults sometimes, and the backtrace is the only account of it
+    executablePath: process.env.MERCURY_ELECTRON || undefined
+  })
+
+  if (process.env.MERCURY_APP_LOG) {
+    const out = fs.createWriteStream(process.env.MERCURY_APP_LOG, { flags: 'a' })
+    app.process().stdout.on('data', d => out.write('[out] ' + d.toString()))
+    app.process().stderr.on('data', d => out.write('[err] ' + d.toString()))
+    app.process().on('exit', (code, signal) => out.write(`[exit] code=${code} signal=${signal}\n`))
+  }
 
   const ui = await until(
     () => app.windows().find(page => page.url() === UI_URL),
@@ -202,10 +217,12 @@ async function launchApp (options = {}) {
       reapLeftovers(home)
       // The throwaway home is a few megabytes, and /tmp is a tmpfs: on a
       // long enough run it fills up, and then the app cannot write its cache -
-      // the window never opens and every test times out. Only homes the
-      // harness made are removed; a caller-supplied one is left alone.
+      // the window never opens and every test times out. The app's own
+      // directory is what goes; the Min sentinel the harness seeds stays,
+      // because a spec reads it after the app has exited. Only homes the
+      // harness made are touched; a caller-supplied one is left alone.
       if (home.startsWith(path.join(os.tmpdir(), 'mercury-e2e-'))) {
-        fs.rmSync(home, { recursive: true, force: true })
+        fs.rmSync(path.join(home, '.config', 'Mercury'), { recursive: true, force: true })
       }
     }
   }
