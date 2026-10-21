@@ -132,15 +132,15 @@ test('the colour tokens are real CSS colours', () => {
     )
   }
 
-  // AMOLED frame (§4.8): the frame's background is true black, not a dark grey
-  // - but the island is lifted off it, so the two are never the same colour.
+  // AMOLED (§4.8): the frame's background is true black, not a dark grey, and
+  // the island is true black too - the maintainer's call of 2026-10-21. The
+  // island is not lifted off the frame by its colour any more; on an OLED
+  // panel its pixels are simply unlit, so it reads as a hole in the page rather
+  // than as a slab laid on it. What still gives it an edge is the hairline
+  // border and, on a light page, the shadow.
   assert.equal(chromeTokens.dark['--frame-bg'], '#000000')
+  assert.equal(chromeTokens.dark['--island-bg'], '#000000')
   for (const variant of ['light', 'dark']) {
-    assert.notEqual(
-      chromeTokens[variant]['--island-bg'],
-      chromeTokens[variant]['--frame-bg'],
-      `${variant}: the island's surface is the frame's colour, so it has no lift`
-    )
     assert.match(
       chromeTokens[variant]['--island-border'],
       /^rgba?\([\d.,\s]+\)$/i,

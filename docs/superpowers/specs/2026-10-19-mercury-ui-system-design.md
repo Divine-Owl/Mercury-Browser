@@ -305,8 +305,10 @@ Each criterion is mechanically checkable.
 - The built-in dark variant is **AMOLED black**: the *frame's* background is true `#000`, and the
   neutrals and hairline are chosen to stay legible against it. On an OLED panel the window's own
   edge dissolves into the display.
-- The island is a **lifted surface** over that frame: its own background (`--island-bg`, `#23252b`
-  in the dark variant — a step off the frame, not the same black), a 1 px `--island-border`, and a
+- The island is a **lifted surface** over that frame: its own background (`--island-bg`, `#000000`
+  in the dark variant — true black, the same as the frame, so that on an OLED panel the island's
+  pixels are unlit and it reads as a hole in the page rather than a slab laid on it; the hairline
+  is what gives it an edge), a 1 px `--island-border`, and a
   deeper `--island-shadow` (`0 2px 5px` plus `0 1px 2px`) than a plain bar would need. Its radius
   is the **capsule rule** — half the island's height, so the row's ends are semicircles — and the
   chrome box reserves 8 px under it for the shadow to paint in, so the box's own edge never cuts

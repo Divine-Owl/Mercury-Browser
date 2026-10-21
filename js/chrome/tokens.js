@@ -14,9 +14,12 @@
    paints with before main has pushed the pageCornerRadius setting - the setting
    rules (§4.7).
 
-   The island is a **lifted surface**, not a second copy of the frame's colour: it
-   carries its own --island-bg (a step off --frame-bg), a --island-border and a
-   deeper --island-shadow, which is what makes it read as an object over the page.
+   The island is a **lifted surface**: it carries its own --island-bg, a
+   --island-border and a --island-shadow, which is what makes it read as an
+   object over the page. In the dark variant --island-bg is true black, the
+   same as the frame's (the maintainer's call of 2026-10-21): on an OLED panel
+   the island's pixels are unlit, so it reads as a hole in the page rather than
+   as a slab laid on it, and the hairline border is what gives it an edge.
    The shadow is sized to the room the layer gives it: 8 px under the island, so
    its reach - the offset plus the blur - has to fit in 8. The spike's shadow
    (`0 16px 46px`) wanted 62, and the layer's edge cut it off, which reads as a
@@ -98,7 +101,7 @@ var chromeTokens = {
     '--pill': 'rgba(255, 255, 255, 0.28)',
     '--text': '#f2f2f7',
     '--accent': '#8f9dff',
-    '--island-bg': '#23252b',
+    '--island-bg': '#000000',
     '--island-border': 'rgba(255, 255, 255, 0.14)',
     '--island-shadow': '0 2px 5px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.45)',
     '--island-radius': 'calc(var(--island-h) / 2)',
