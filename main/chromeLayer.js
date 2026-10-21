@@ -45,6 +45,18 @@ const chromeLayer = {
       }
     })
 
+    /* A view has a background colour of its own, and Electron's default is
+       opaque white - so everything the layer does not paint (the gap between
+       the frame and the island, the room under it) is a white band across the
+       top of the window, with the page behind white instead of behind the
+       window. Electron's own note on a transparent window says the same: a
+       view added to a window needs a transparent background colour of its own.
+
+       The page's CSS says transparent, and that is a different thing: it says
+       the layer paints nothing there, not that the view behind the page is
+       transparent. */
+    view.setBackgroundColor('#00000000')
+
     const bounds = win.getContentBounds()
     view.setBounds({ x: 0, y: 0, width: bounds.width, height: chromeTokens.frameHeight })
 

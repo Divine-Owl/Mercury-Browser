@@ -114,6 +114,27 @@ test.describe('the chrome layer', () => {
     await ctx.close()
   })
 
+  /* The layer is a view of its own, and a view has a background colour of its
+     own - Electron's default is opaque white. The page's CSS says transparent,
+     but the view behind the page is white, so everything the layer does not
+     paint is a white band across the top of the window. Electron's own note
+     says it: a view added to a window needs a transparent background colour
+     of its own.
+
+     getBackgroundColor drops the alpha channel, so a transparent layer reads
+     back as #000000 and an opaque one as #FFFFFF - the same trade the window
+     identity's case makes. */
+  test('is a transparent layer, so the page is behind it', async () => {
+    await openAddressBar(ctx.ui, ctx.app)
+
+    // a row the layer does not paint: the gap between the frame and the island.
+    // A view with an opaque background of its own fills it, and the page is
+    // then behind white instead of behind the window.
+    const samples = await pixels(ctx.app, 'mercury://app/pages/chrome/index.html', [{ x: 200, y: 14 }])
+
+    expect(samples[0].a).toBe(0)
+  })
+
   test('sits above the page, exactly as tall as the frame', async () => {
     const facts = await layerFacts(ctx.app)
 
